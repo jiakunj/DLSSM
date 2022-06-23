@@ -7,13 +7,13 @@
 DLSSM.plot(fit)
 }
 \arguments{
-\item{fit}{fitted state-space model}
+\item{fit}{object generated from DLSSM() or DLSSM.init()}
 }
 \description{
-Plot predicted, filtered and smoothed coefficients
+Plot smoothed coefficients in the trainning part and predicted coefficients in validation part
 }
 \details{
-The argument fit could be object of DLSSM or DLSSM.init
+If argument fit is initial fitted model then only smoothed coefficients part are plotted.
 }
 \author{
 Jiakun Jiang, Wei Yang, Stephen E. Kimmel and Wensheng Guo

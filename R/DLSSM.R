@@ -1,581 +1,30 @@
-#' Dynamic logistic state-space prediction model for binary outcomes
-#' @author Jiakun Jiang, Wei Yang, Stephen E. Kimmel and Wensheng Guo
-#' @description Implements dynamic logistic state-space prediction model for binary outcomes as described in Jiakun et al.(2021, Biometrics). In retrospective study,
-#' it is suitable to use the main function DLSSM with specify trainning sample size. The results can also be repeated using subfunctions which is more suitable for online implementation. The algorithm was composed by training part and validation part.
-#' On the stage of training, the smoothing parameters were selected by maximizing likelihood function. Then, based on the estimated smoothing parameters, run the Kalman filtering and
-#' smoothing algorithm to estimate both the time-varying and time-invariant coefficients in the model. Based on the estimated coefficients and state-sapce model, it was straightforward to do prediction.
-#' @export
-#' @import Matrix
-#' @param x n by q matrix of covariates
-#' @param y A vector of binary outcome of length n
-#' @param t A vector of observational timepoints of length n
-#' @param S Number of batches (equally spaced)
-#' @param training_samp Number of batches used as training data. If null (default), half number of batches will be used.
-#' @param vary A vector specify the covariates with time-varying coefficients. The remaining covariates have constant coefficients. For example, vector vary=(1,2) will specify first and third covariates as having time-varying coefficients. Intercept is always time-varying. If vary=NULL, only intercept is time-varying coefficient.
-#' @param autotune T/F indicates whether or not the automatic tuning procedure described in Jiakun et al. (2021) should be applied.  Default is true.
-#' @param Lambda Specify smoothing parameters manually if autotune=F
-#' @param K Specify how many steps ahead prediction of coefficients and probabilities
-#' @details User first need to identify the covariates which have time-varying coefficients.
-#' User need to decide the number of batches S which is achieved by dividing the observational time domain time into equally spaced time intervals. The number of batches S should satisfy a condition that all intervals have data.
-#' The selection smoothing parameters usually be recommended by maximizing likelihood. The training data should have relatively large sample size to ensure the tuned smoothing parameters reliable.
-#' @return A list with letters and numbers.
-#'  \tabular{ll}{
-#'    \code{Pred} \tab Predicted coefficients in the prediction step of Kalman Filter \cr
-#'    \tab \cr
-#'    \code{Pred.var} \tab Covariance matrix of Predicted coefficient in prediction step of Kalman Filter \cr
-#'    \tab \cr
-#'    \code{Filter} \tab Filtered coefficients in Kalman Filter \cr
-#'    \tab \cr
-#'    \code{Filter.var} \tab Covariance matrix of filtered coefficients in Kalman Filter \cr
-#'    \tab \cr
-#'    \code{Smooth} \tab Smoothing of coefficients \cr
-#'    \tab \cr
-#'    \code{Smooth.var} \tab Covariance matrix of smoothing of coefficients \cr
-#'    \tab \cr
-#'    \code{Pred.K} \tab K-steps ahead prediction of coefficients \cr
-#'    \tab \cr
-#'    \code{Pred.K.var} \tab Covariance matrix of K-steps ahead of prediction of coefficients \cr
-#'    \tab \cr
-#'    \code{Lambda} \tab Smoothing parameters \cr
-#'    \tab \cr
-#'    \code{q} \tab Number of covariates \cr
-#'    \tab \cr
-#'    \code{q1} \tab Number of covariates with varying coefficients \cr
-#'    \tab \cr
-#'    \code{train.time} \tab Time-points of training data \cr
-#'    \tab \cr
-#'    \code{dim} \tab Number of varying coefficients which equals to q+1(including a varying intercept) \cr
-#'    \tab \cr
-#'    \code{dim.con} \tab Number of constant coefficients \cr
-#'    \tab \cr
-#'    \code{TT} \tab Transformation matrix \cr
-#'    \tab \cr
-#'    \code{Q} \tab Variance matrix \cr
-#'    \tab \cr
-#'    \code{Prob.pred.K} \tab K-steps ahead prediction of probabilities \cr
-#'    \tab \cr
-#'    ...
-#'  }
-#' @examples
-#' rm(list=ls())
-#' set.seed(12345)
-#' n=8000
-#' beta0=function(t)   0.1*t-1   # Intercept
-#' beta1=function(t)  cos(2*pi*t)   # Varying coefficient
-#' beta2=function(t)  sin(2*pi*t)   # Varying coefficient
-#' alph1=alph2=1
-#' x=matrix(runif(n*4,min=-4,max=4),nrow=n,ncol=4)
-#' t=sort(runif(n))
-#' coef=cbind(beta0(t),beta1(t),beta2(t),rep(alph1,n),rep(alph2,n))
-#' covar=cbind(rep(1,n),x)
-#' linear=apply(coef*covar,1,sum)
-#' prob=exp(linear)/(1+exp(linear))
-#' y=as.numeric(runif(n)<prob)
-#' fit=DLSSM(x,y,t,S=100,vary=c(1,2),autotune=TRUE,training_samp=75,K=1)
-#'
-#' # plot one-step ahead predicted, filtered and smoothed cofficients
-#' # DLSSM.plot(fit)
-#' # fit$Lambda
-#' # hist(fit$Prob.pred.K[[75]][[1]],main="Histogram of predicted
-#' # probabilities of subjects in 76-th batch", xlab = "Probability")
-#'
-#'
-#' # Implement the DLSSM in a "streaming" model
-#' S=100
-#' data.batched=Data.batched(x,y,t,S)
-#' # Using DLSSM.init() on training dataset (first S.initial batches of data) to tune smoothing parameters
-#' init.fit=DLSSM.init(data.batched,S.initial=75,vary=c(1,2),autotune=TRUE)
-#' Prediction=matrix(NA,S,2*3+2)
-#' Prediction.var=array(NA,dim=c(S,2*3+2,2*3+2))
-#' Filtering=matrix(NA,S,2*3+2)
-#' Filtering.var=array(NA,dim=c(S,2*3+2,2*3+2))
-#' Prediction[1:75,]=init.fit$Pred
-#' Prediction.var[1:75,,]=init.fit$Pred.var
-#' Filtering[1:75,]=init.fit$Filter
-#' Filtering.var[1:75,,]=init.fit$Filter.var
-#'
-#' # The following streaming structure fit online dynamic implementation
-#' for(i in 76:100){
-#'   pred1=DLSSM.predict(init.fit,newx=NULL,K=1)
-#'   Prediction[i,]=pred1$coef.pred
-#'   Prediction.var[i,,]=pred1$coef.pred.var
-#'   init.fit=DLSSM.filter(init.fit,data.batched$x.batch[[i]],data.batched$y.batch[[i]])
-#'   Filtering[i,]=init.fit$Filter
-#'   Filtering.var[i,,]=init.fit$Filter.var
-#' }
-#' # Smoothed results be generated by integrating historical prediction and filtering results
-#' Smoothed=DLSSM.smooth(init.fit,Prediction,Prediction.var,Filtering,Filtering.var)
-DLSSM<-function(x,y,t,S,vary,autotune=TRUE,training_samp,Lambda=NULL,K){
-  ###check data
-  n=dim(x)[1]              #sample size  #num.vary
-  q=dim(x)[2]              #dimension of covariates
-  num.vary=q1=length(vary) #number of covariates with varying coefficient
-  q2=q-q1                  #number of covariates with time-invariant coefficient
-  if(n!=length(t)|n!=length(y)){
-    stop("The length of data does not match.")
-  }
-  if(any(is.na(x))==TRUE|any(is.na(t))==TRUE|any(is.na(y))==TRUE){
-    stop("There has NA in the data")
-  }
-  if(is.vector(vary)==FALSE & is.null(vary)==FALSE){
-    stop("vary need to be a positive integer vector or NULL")
-  }
-  if(is.null(vary)==FALSE){
-    if(max(vary)>q|min(vary)<0|min(vary)==0) {
-      stop("If vary is not NULL. The elements in vary need to be between 1 and number of covariates.")
-    }
-  }
-  if(is.numeric(x)==FALSE|is.numeric(y)==FALSE|is.numeric(t)==FALSE){
-    stop("x,y,t need to be numeric")
-  }
-  if(num.vary>q){
-    stop("The number of time-varying coefficients need to smaller than number of covariates.")
-  }
-  if(as.integer(abs(S))!=S){
-    stop("S need to be a positive integer")
-  }
-  if(training_samp>S){
-    stop("The number of batches used as training data should not excess total batches S.")
-  }
-
-  t=t/max(t)
-  oder=order(t)
-  t.order=t[oder]
-  x.order=x[oder,]
-  y.order=y[oder]
-  # create batch
-  if(num.vary==q){
-    x.vary=x.order[,1:q]
-    t=list()         # observational time-points
-    X=list()         # Covariates corresponding to varying coefficients
-    #XX=list()        # Covariates corresponding to constant coefficients
-    y=list()         # binary outcome
-    Data.check=rep(NA,S)
-    for(i in 1:S){
-      sel=t.order>(i-1)/S & t.order<=i/S
-      t[[i]]=t.order[sel]
-      X[[i]]=x.vary[sel,]
-      y[[i]]=as.numeric(y.order[sel])
-      Data.check[i]=sum(sel)
-    }
-  }
-  if(num.vary>0&num.vary<q){
-    x.vary=as.matrix(x.order[,vary],ncol=num.vary)
-    x.constant=as.matrix(x.order[,setdiff(1:q,vary)],ncol=q-num.vary)
-    t=list()         # observational time-points
-    X=list()         # Covariates corresponding to varying coefficients
-    XX=list()        # Covariates corresponding to constant coefficients
-    y=list()         # binary outcome
-    Data.check=rep(NA,S)
-    for(i in 1:S){
-      sel=t.order>(i-1)/S & t.order<=i/S
-      t[[i]]=t.order[sel]
-      X[[i]]=x.vary[sel,]
-      XX[[i]]=x.constant[sel,]
-      y[[i]]=as.numeric(y.order[sel])
-      Data.check[i]=sum(sel)
-    }
-  }
-  if(num.vary==0){  # no varying-coefficient
-    x.constant=x.order
-    t=list()         # observational time-points
-    XX=list()        # Covariates corresponding to constant coefficients
-    y=list()         # binary outcome
-    Data.check=rep(NA,S)
-    for(i in 1:S){
-      sel=t.order>(i-1)/S & t.order<=i/S
-      t[[i]]=t.order[sel]
-      XX[[i]]=x.constant[sel,]
-      y[[i]]=as.numeric(y.order[sel])
-      Data.check[i]=sum(sel)
-    }
-  }
-  if(any(Data.check==0)){
-    stop("There exist some intervals [(i-1)/S,i/S] with no data, please reduce numder of batches")
-  }
-  #########################################
-  #State space model setup
-  #########################################
-  dim=q1+1                                  # Number of varying coefficients including intercept
-  dim.con=q2                                # Number of constant coefficients
-  TT=matrix(0,2*dim+dim.con,2*dim+dim.con)  # Transformation matrix in state-space model
-  QQ=matrix(NA,2,2)                         # Covariance matrix in state-space model
-  delta.t=1/S                               # Batch data be generated equally spaced
-  TTq1=matrix(0,2*dim,2*dim)                # Transformation matrix for varying coefficient
-  TTq2=diag(rep(1,dim.con))                 # Transformation matrix for constant coefficient
-  for(ss in 1:dim){
-    TTq1[(2*ss-1):(2*ss),(2*ss-1):(2*ss)]=matrix(c(1, 0, delta.t, 1),2, 2)
-  }
-  TT=as.matrix(bdiag(TTq1,TTq2))
-  QQ=matrix(c((delta.t)^3/3,(delta.t)^2/2,(delta.t)^2/2,delta.t),2,2)
-  a1=rep(0,2*dim+dim.con)        # Initial value
-  diff=log(100)                  # Diffuse variance of initial prior distribution
-  n.train=training_samp            # number of batches
-  #########################################
-  #Likelihood function to tune smoothing parameters Lambda based on training data
-  #########################################
-  if(autotune==TRUE){
-    likehood.predictive=function(xx) {
-      Lambda=xx
-      Q=matrix(0,2*dim+dim.con,2*dim+dim.con)
-      Q1=matrix(0,2*dim,2*dim)
-      for(ss in 1:dim){
-        Q1[(2*ss-1):(2*ss),(2*ss-1):(2*ss)]=exp(Lambda[ss])*QQ
-      }
-      Q2=TTq2=matrix(0,dim.con,dim.con)
-      Q=as.matrix(bdiag(Q1,Q2))
-
-      P1 <- exp(diff)*diag(2*dim+dim.con)
-
-      Sample.likehood=rep(NA,n.train)
-
-      prediction=matrix(NA,n.train,dim*2+dim.con)
-      prediction.var=array(NA,dim=c(n.train,dim*2+dim.con,dim*2+dim.con))
-      prediction[1,]=a1
-      prediction.var[1,,]=P1
-
-
-      filter=matrix(NA,n.train,dim*2+dim.con)
-      filter.var=array(NA,dim=c(n.train,dim*2+dim.con,dim*2+dim.con))
-
-      intial=prediction[1,]
-      ZZ=matrix(0,2*dim+dim.con,length(t[[1]]))
-      if(num.vary==q){
-        ZZ[1,]=1
-        for(sss in 1:(dim-1)) {
-          ZZ[2*sss+1,]=t(X[[1]])[sss,]
-        }
-      }
-      if(num.vary>0&num.vary<q){
-        ZZ[1,]=1
-        for(sss in 1:(dim-1)) {
-          ZZ[2*sss+1,]=t(X[[1]])[sss,]
-        }
-        ZZ[(2*dim+1):(2*dim+dim.con),]=t(XX[[1]])
-      }
-      if(num.vary==0){
-        ZZ[1,]=1
-        ZZ[(2*dim+1):(2*dim+dim.con),]=t(XX[[1]])
-      }
-
-      for(inter in 1:1000){
-        summa=rep(0,2*dim+dim.con)
-        summa.cov=matrix(0,2*dim+dim.con,2*dim+dim.con)
-        for(j in 1:length(t[[1]])){
-          y.hat=exp(ZZ[,j]%*%intial)/(1+exp(ZZ[,j]%*%intial))
-          summa=summa+as.numeric(y[[1]][j]-y.hat)*ZZ[,j]
-          summa.cov=summa.cov+as.numeric(y.hat*(1-y.hat))*ZZ[,j]%o%ZZ[,j]
-        }
-
-        SCORE=summa-t(solve(prediction.var[1,,])%*%(intial-matrix(prediction[1,],2*dim+dim.con,1)))
-        COVMATRIX=-solve(prediction.var[1,,])-summa.cov
-        recur=intial-(0.2*solve(COVMATRIX)%*%t(SCORE))
-        befor=intial
-        intial=recur
-        if(mean(abs(befor-recur))<0.00001){break}
-      }
-      filter[1,]=recur
-      filter.var[1,,]=solve(-COVMATRIX)
-
-
-      lihood=0
-      for(j in 1:length(t[[1]])){
-        y.hatt=exp(ZZ[,j]%*%filter[1,])/(1+exp(ZZ[,j]%*%filter[1,]))
-        Covmatrix=-solve(prediction.var[1,,])-as.numeric(y.hatt*(1-y.hatt))*ZZ[,j]%o%ZZ[,j]
-        densi=1/sqrt(det(prediction.var[1,,]))*
-          exp(-0.5*(filter[1,]-prediction[1,])%*%solve(prediction.var[1,,])%*%(filter[1,]-prediction[1,]))
-        lihood=lihood+log(2*pi*sqrt(det(solve(-Covmatrix)))*(y.hatt^(y[[1]][j]))*((1-y.hatt)^(1-y[[1]][j]))*densi)
-      }
-      Sample.likehood[1]=lihood
-
-      for(i in 2:n.train) {
-        prediction[i,]=TT%*%filter[i-1,]
-        prediction.var[i,,]=TT%*%filter.var[i-1,,]%*%t(TT)+Q
-
-        intial=prediction[i,]
-        ZZ=matrix(0,dim*2+dim.con,length(t[[i]]))
-        if(num.vary==q){
-          ZZ[1,]=1
-          for(sss in 1:(dim-1)) {
-            ZZ[2*sss+1,]=t(X[[i]])[sss,]
-          }
-        }
-        if(num.vary>0&num.vary<q){
-          ZZ[1,]=1
-          for(sss in 1:(dim-1)) {
-            ZZ[2*sss+1,]=t(X[[i]])[sss,]
-          }
-          ZZ[(2*dim+1):(2*dim+dim.con),]=t(XX[[i]])
-        }
-        if(num.vary==0){
-          ZZ[1,]=1
-          ZZ[(2*dim+1):(2*dim+dim.con),]=t(XX[[i]])
-        }
-
-        for(inter in 1:1000){
-          summa=rep(0,dim*2+dim.con)
-          summa.cov=matrix(0,dim*2+dim.con,dim*2+dim.con)
-          for(j in 1:length(t[[i]])){
-            y.hat=exp(ZZ[,j]%*%intial)/(1+exp(ZZ[,j]%*%intial))
-            summa=summa+as.numeric(y[[i]][j]-y.hat)*ZZ[,j]
-            summa.cov=summa.cov+as.numeric(y.hat*(1-y.hat))*ZZ[,j]%o%ZZ[,j]
-          }
-          SCORE=summa-t(solve(prediction.var[i,,])%*%(intial-matrix(prediction[i,],2*dim+dim.con,1)))
-          COVMATRIX=-solve(prediction.var[i,,])-summa.cov
-          recur=intial-(0.2*solve(COVMATRIX)%*%t(SCORE))
-          befor=intial
-          intial=recur
-          if(max(abs(befor-recur))<0.00001){break}
-        }
-        filter[i,]=recur
-        filter.var[i,,]=solve(-COVMATRIX)
-
-        lihood=0
-        for(j in 1:length(t[[i]])){
-          y.hatt=exp(ZZ[,j]%*%filter[i,])/(1+exp(ZZ[,j]%*%filter[i,]))
-          Covmatrix=-solve(prediction.var[i,,])-as.numeric(y.hatt*(1-y.hatt))*ZZ[,j]%o%ZZ[,j]
-          densi=1/sqrt(det(prediction.var[i,,]))*
-            exp(-0.5*(filter[i,]-prediction[i,])%*%solve(prediction.var[i,,])%*%(filter[i,]-prediction[i,]))
-          lihood=lihood+log(2*pi*sqrt(det(solve(-Covmatrix)))*(y.hatt^(y[[i]][j]))*((1-y.hatt)^(1-y[[i]][j]))*densi)
-        }
-        Sample.likehood[i]=lihood
-      }
-      likelihood=-sum((Sample.likehood))
-      return(likelihood)
-    }
-    if(dim>1){
-      search.opt=optim(rep(2,dim),likehood.predictive)  #Optimize likelihood function
-      Lambda=exp(search.opt$par)
-    }
-    if(dim==1){
-      search.opt=optimize(likehood.predictive,c(-20,20))  #Optimize likelihood function
-      Lambda=exp(search.opt$minimum)
-    }
-    #Smoothing parameter for intercept
-  }else{
-    if(length(Lambda)!=num.vary+1){
-      stop("The number of smoothing parameters should equal to number of varying coefficients, including varying intercept.")
-    }
-    Lambda=Lambda
-  }
-
-  P1<-exp(diff)*diag(dim*2+dim.con)                   #Diffuse prior
-  Q=matrix(0,dim*2+dim.con,dim*2+dim.con)
-
-  Q1=matrix(0,2*dim,2*dim)
-  for(ss in 1:dim){
-    Q1[(2*ss-1):(2*ss),(2*ss-1):(2*ss)]=Lambda[ss]*QQ
-  }
-  Q2=TTq2=matrix(0,dim.con,dim.con)
-  Q=as.matrix(bdiag(Q1,Q2))
-
-  #########################################
-  #Model estimation using all data with Kalman filter
-  #########################################
-  prediction.K=list()  #for K steps ahead prediction
-  prediction.var.K=list()  #for K steps ahead prediction
-  prediction=matrix(NA,S,2*dim+dim.con)                    # Mean prediction
-  prediction.var=array(NA,dim=c(S,2*dim+dim.con,2*dim+dim.con))  # Covariance prediction
-  prediction[1,]=a1                                  # Initial mean
-  prediction.var[1,,]=P1                             # Initial covariance
-
-  ##K-steps ahead prediction
-  prediction.K[[1]]=a1
-  prediction.var.K[[1]]=P1
-
-  filter=matrix(NA,S,2*dim+dim.con)                        # Filtering mean
-  filter.var=array(NA,dim=c(S,2*dim+dim.con,2*dim+dim.con))      # Filtering covariance
-
-  #Kalman filter on first timepoint
-  intial=prediction[1,]
-  ZZ=matrix(0,2*dim+dim.con,length(t[[1]]))  #define covariate z in our state space model (5)
-  if(num.vary==q){
-    ZZ[1,]=1
-    for(sss in 1:(dim-1)) {
-      ZZ[2*sss+1,]=t(X[[1]])[sss,]
-    }
-  }
-  if(num.vary>0&num.vary<q){
-    ZZ[1,]=1
-    for(sss in 1:(dim-1)) {
-      ZZ[2*sss+1,]=t(X[[1]])[sss,]
-    }
-    ZZ[(2*dim+1):(2*dim+dim.con),]=t(XX[[1]])
-  }
-  if(num.vary==0){
-    ZZ[1,]=1
-    ZZ[(2*dim+1):(2*dim+dim.con),]=t(XX[[1]])
-  }
-  for(inter in 1:1000){       # Newton-Raphson iterative algorithm to get filtering estimator
-    summa=rep(0,2*dim+dim.con)
-    summa.cov=matrix(0,2*dim+dim.con,2*dim+dim.con)
-    for(j in 1:length(t[[1]])){
-      y.hat=exp(ZZ[,j]%*%intial)/(1+exp(ZZ[,j]%*%intial))
-      summa=summa+as.numeric(y[[1]][j]-y.hat)*ZZ[,j]
-      summa.cov=summa.cov+as.numeric(y.hat*(1-y.hat))*ZZ[,j]%o%ZZ[,j]
-    }
-    SCORE=summa-t(solve(prediction.var[1,,])%*%(intial-matrix(prediction[1,],2*dim+dim.con,1)))
-    COVMATRIX=-solve(prediction.var[1,,])-summa.cov
-    recur=intial-(0.2*solve(COVMATRIX)%*%t(SCORE))
-    befor=intial
-    intial=recur
-    if(mean(abs(befor-recur))<0.00001){break}
-    if(inter==1000){stop("failed converge","\n")}
-  }
-  filter[1,]=recur                      # Filtering mean
-  filter.var[1,,]=solve(-COVMATRIX)     # Filtering covariance
-
-  #Kalman filter on timepoints from 2 to S
-  Prob.est=list()   # one-step ahead prediction
-  Prob.est.K=list() # K steps ahead prediction
-  for(i in 2:S) {
-    if(S-i>1){
-      K.S.P=matrix(NA,min(S-i,K),2*dim+dim.con)
-      K.S.P.var=array(NA,dim=c(min(S-i,K),2*dim+dim.con,2*dim+dim.con))
-      K.S.P[1,]=TT%*%filter[i-1,]
-      K.S.P.var[1,,]=TT%*%filter.var[i-1,,]%*%t(TT)+Q
-      if(K>1){
-        for(kp in 2:min(S-i,K)){
-          K.S.P[kp,]=TT%*%K.S.P[kp-1,]
-          K.S.P.var[kp,,]=TT%*%K.S.P.var[kp-1,,]%*%t(TT)+Q
-        }
-      }
-      prediction.K[[i]]=K.S.P
-      prediction.var.K[[i]]=K.S.P.var
-    }
-    if(S-i==1){
-      prediction.K[[i]]=matrix(TT%*%filter[i-1,],nrow=1)
-      AAAA=array(NA,dim=c(1,2*dim+dim.con,2*dim+dim.con))
-      AAAA[1,,]=TT%*%filter.var[i-1,,]%*%t(TT)+Q
-      prediction.var.K[[i]]=AAAA
-    }
-
-    #K-steps ahead prediction of probability.
-    if(S-i>0){
-      y.hat.k=list()
-      for(kspp in 1:dim(prediction.K[[i]])[1]){
-        intial=prediction.K[[i]][kspp,]
-
-        ZZ=matrix(0,dim*2+dim.con,length(t[[i+kspp-1]]))
-        if(num.vary==q){
-          ZZ[1,]=1
-          for(sss in 1:(dim-1)) {
-            ZZ[2*sss+1,]=t(X[[i+kspp-1]])[sss,]
-          }
-        }
-        if(num.vary>0&num.vary<q){
-          ZZ[1,]=1
-          for(sss in 1:(dim-1)) {
-            ZZ[2*sss+1,]=t(X[[i+kspp-1]])[sss,]
-          }
-          ZZ[(2*dim+1):(2*dim+dim.con),]=t(XX[[i+kspp-1]])
-        }
-        if(num.vary==0){
-          ZZ[1,]=1
-          ZZ[(2*dim+1):(2*dim+dim.con),]=t(XX[[i+kspp-1]])
-        }
-        y.hat.k[[kspp]]=exp(t(ZZ)%*%intial)/(1+exp(t(ZZ)%*%intial))
-      }
-      Prob.est.K[[i]]=y.hat.k
-    }
-    # Prediction step
-    prediction[i,]=TT%*%filter[i-1,]
-    prediction.var[i,,]=TT%*%filter.var[i-1,,]%*%t(TT)+Q
-    # Filtering step
-    intial=prediction[i,]
-    ZZ=matrix(0,dim*2+dim.con,length(t[[i]]))
-    if(num.vary==q){
-      ZZ[1,]=1
-      for(sss in 1:(dim-1)) {
-        ZZ[2*sss+1,]=t(X[[i]])[sss,]
-      }
-    }
-    if(num.vary>0&num.vary<q){
-      ZZ[1,]=1
-      for(sss in 1:(dim-1)) {
-        ZZ[2*sss+1,]=t(X[[i]])[sss,]
-      }
-      ZZ[(2*dim+1):(2*dim+dim.con),]=t(XX[[i]])
-    }
-    if(num.vary==0){
-      ZZ[1,]=1
-      ZZ[(2*dim+1):(2*dim+dim.con),]=t(XX[[i]])
-    }
-
-    if(i>n.train){
-      y.hat=exp(t(ZZ)%*%intial)/(1+exp(t(ZZ)%*%intial))
-      Prob.est[[i-n.train]]=y.hat
-    }
-
-
-
-
-    for(inter in 1:1000){     # Newton-Raphson
-      summa=rep(0,dim*2+dim.con)
-      summa.cov=matrix(0,dim*2+dim.con,dim*2+dim.con)
-      for(j in 1:length(t[[i]])){
-        y.hat=exp(ZZ[,j]%*%intial)/(1+exp(ZZ[,j]%*%intial))
-        summa=summa+as.numeric(y[[i]][j]-y.hat)*ZZ[,j]
-        summa.cov=summa.cov+as.numeric(y.hat*(1-y.hat))*ZZ[,j]%o%ZZ[,j]
-      }
-      SCORE=summa-t(solve(prediction.var[i,,])%*%(intial-matrix(prediction[i,],2*dim+dim.con,1)))
-      COVMATRIX=-solve(prediction.var[i,,])-summa.cov
-      recur=intial-(0.2*solve(COVMATRIX)%*%t(SCORE))
-      befor=intial
-      intial=recur
-      if(mean(abs(befor-recur))<0.00001){break}
-      if(inter==1000){stop("Newton-Raphson failed to converge","\n")}
-    }
-    filter[i,]=recur
-    filter.var[i,,]=solve(-COVMATRIX)
-  }
-
-  #Smoothed coefficients on training data
-  state.smooth=matrix(NA,S,2*dim+dim.con)
-  F.t.smooth=array(NA,dim=c(S,2*dim+dim.con,2*dim+dim.con))
-  state.smooth[S,]=filter[S,]
-  F.t.smooth[S,,]=filter.var[S,,]
-  for(i in (S-1):1){
-    A.i=filter.var[i,,]%*%t(TT)%*%solve(prediction.var[i+1,,])
-    state.smooth[i,]=filter[i,]+A.i%*%(state.smooth[i+1,]-prediction[i+1,])
-    F.t.smooth[i,,]=filter.var[i,,]-A.i%*%(prediction.var[i+1,,]-F.t.smooth[i+1,,])%*%t(A.i)
-  }
-  Est=list(Pred=prediction,Pred.var=prediction.var,Filter=filter
-           ,Filter.var=filter.var,Smooth=state.smooth,Smooth.var=F.t.smooth
-           ,Lambda=Lambda,vary=vary,q=q,q1=q1,q2=q2
-           ,train.time=t.order,dim=dim,dim.con=dim.con,TT=TT,Q=Q,Pred.K=prediction.K,Pred.K.var=prediction.var.K
-           ,Prob.pred=Prob.est.K,Prob.pred.K=Prob.est.K,S=S,gap.len=delta.t,training_samp=training_samp)
-  return(Est)
-}
-
 #' Combine data into Batched data
 #' @author Jiakun Jiang, Wei Yang, Stephen E. Kimmel and Wensheng Guo
-#' @description The time domain of oberservation was first standardized in [0,1]. Then [0,1] was divided into S equally spaced intervals as described in Jiakun et al.(2021, Biometrics).
-#' Then data fall into each interval compose a batch of data.
-#' @param x n by q matrix of covariates
-#' @param y n vector of binary responses
-#' @param t n vector of observed time-points
+#' @description The time domain of observation will first be standardized into [0,1]. Then [0,1] will be divided into S equally spaced intervals as described in Jiakun et al.(2021, Biometrics).
+#' Then those intervals slice the dataset to S batches of data.
+#' @param formula an object of class "formula" (or one that can be coerced to that class): a symbolic description of response and covariates in the model.
+#' @param data 	The dataset matrix containing the observations (one row per sample).
+#' @param time  The name of the variable in the dataset which represents time. The varying coefficient functions are assumed to be smooth functions of this variable.
 #' @param S number of batches
 #' @export
-#' @return A list of batched data.
+#' @return
 #'  \tabular{ll}{
-#'    \code{x.batch} \tab Batched covariates \cr
+#'    \code{batched} \tab List of batched data, the element of list is matrix with each row per sample \cr
 #'    \tab \cr
-#'    \code{y.batch} \tab Batched binary outcome \cr
-#'    \tab \cr
-#'    \code{t.batch} \tab Batched time-points \cr
-#'    \tab \cr
-#'    \code{gap.len} \tab Length of the equally spaced time interval \cr
+#'    \code{gap.len} \tab interval length 1/S  \cr
 #'  }
-Data.batched<-function(x,y,t,S){
-  ###check data
+Batched<-function(formula,data,time,S){
+  if(any(is.na(data))==T) { stop("The dataset have missing data.") }
+  var_names=all.vars(formula)
+  if(all(c(var_names,time)%in%colnames(data))==F) {stop("There exist variable in formula but not in data")}
+  y=data[,var_names[1]]
+  x=data[,var_names[-1]]
+  t=data[,time]
+
   n=dim(x)[1]              #sample size
   q=dim(x)[2]              #dimension of covariates
   if(n!=length(t)|n!=length(y)){
     stop("The dimension of data does not match.")
-  }
-  if(any(is.na(x))==TRUE|any(is.na(t))==TRUE|any(is.na(y))==TRUE){
-    stop("There has NA in the data")
   }
   if(as.integer(abs(S))!=S){
     stop("S need to be a positive integer")
@@ -589,6 +38,7 @@ Data.batched<-function(x,y,t,S){
   t.batch=list()         #Observational time-points
   x.batch=list()         #Covariates corresponding to varying coefficients
   y.batch=list()         #Binary outcome
+  data.all=list()
   Data.check=rep(NA,S)
   for(i in 1:S){
     sel=t.order>(i-1)/S & t.order<=i/S
@@ -596,33 +46,81 @@ Data.batched<-function(x,y,t,S){
     x.batch[[i]]=x.order[sel,]
     y.batch[[i]]=as.numeric(y.order[sel])
     Data.check[i]=sum(sel)
+    mmm=cbind(y.batch[[i]],x.batch[[i]],t.batch[[i]])
+    colnames(mmm)=c(var_names,time)
+    data.all[[i]]=mmm
   }
   if(any(Data.check==0)){
     stop("There exist some intervals [(i-1)/S,i/S] with no data, please adjust batches")
   }
-  return(list(x.batch=x.batch,y.batch=y.batch,t.batch=t.batch,gap.len=1/S))
+  invisible(list(batched=data.all,x.batch=x.batch,y.batch=y.batch,t.batch=t.batch,gap.len=1/S,S=S,time=time,formula=formula))
+  #invisible(list(x.batch=x.batch,y.batch=y.batch,t.batch=t.batch,gap.len=1/S))
 }
 
-#' Smoothing parameters selection and inital model fitting
+
+#' Initial model fitting
 #' @author Jiakun Jiang, Wei Yang, Stephen E. Kimmel and Wensheng Guo
 #' @description This function is for tuning smoothing parameters using training data. The likelihood was calculated by Kalman Filter and maximized to estimate the smoothing parameters.
 #' For the given smoothing parameters, the model coefficients can
 #' be efficiently estimated using a Kalman filtering algorithm.
+#' @import Matrix
 #' @param data.batched A object generated by function Data.batched()
-#' @param S.initial How many batches of data to be used to tuning smoothing parameters
-#' @param vary A vector specify the covariates with time-varying coefficients. The remaining covariates have constant coefficients. For example, vectorvary=(1,2) will specify first two covariates as having time-varying coefficients. Intercept is always time-varying. If vary=NULL, only intercept is time-varying coefficient.
+#' @param S0 Number of batches of data to be used as training dataset
+#' @param vary.effects The names of variables in the dataset assumed to have a time-varying regression effect on the outcome.
 #' @param autotune T/F indicates whether or not the automatic tuning procedure desribed in Jiakun et al. (2021) should be applied.  Default is true.
 #' @param Lambda specify smoothing parameters if autotune=F
 #' @export
-#' @return See the returned value of DLSSM().
-DLSSM.init<-function(data.batched,S.initial,vary,autotune=TRUE,Lambda=NULL){
+#' @return
+#'  \tabular{ll}{
+#'    \code{Lambda:} \tab smoothing parameters \cr
+#'    \tab \cr
+#'    \code{Smooth:} \tab smoothed state vector \cr
+#'    \tab \cr
+#'    \code{Smooth.var:} \tab covariance of smoothed state vector in Smooth.  \cr
+#'  }
+#' @examples
+#' rm(list=ls())
+#' set.seed(12)
+#' n=8000
+#' beta0=function(t)   0.1*t-1
+#' beta1=function(t)  cos(2*pi*t)
+#' beta2=function(t)  sin(2*pi*t)
+#' alph1=alph2=1
+#' x=matrix(runif(n*4,min=-4,max=4),nrow=n,ncol=4)
+#' t=sort(runif(n))
+#' coef=cbind(beta0(t),beta1(t),beta2(t),rep(alph1,n),rep(alph2,n))
+#' covar=cbind(rep(1,n),x)
+#' linear=apply(coef*covar,1,sum)
+#' prob=exp(linear)/(1+exp(linear))
+#' y=as.numeric(runif(n)<prob)
+#' sim.data=cbind(y,x,t)
+#' colnames(sim.data)=c("y","x1","x2","x3","x4","t")
+#' formula = y~x1+x2+x3+x4
+#' # Divide the time domain [0,1] into S=100 equally spaced intervals and then generated S=100 batches of data
+#' S=100
+#' S0=75
+#' data.batched=Batched(formula, data=sim.data, time="t", S)
+#'
+#' # using first 75 batches as training dataset to tune smoothing parameters
+#' fit0=DLSSM.init(data.batched, S0, vary.effects=c("x1","x2"))
+#' fit0$Lambda
+#' DLSSM.plot(fit0)
+DLSSM.init<-function(data.batched,S0,vary.effects,autotune=TRUE,Lambda=NULL){
+  formula=data.batched$formula
+  S=data.batched$S
+  if(S<S0){stop("Number of batches of training dataset exceed S")}
+  #var_names=all.vars(formula)
+  #if(all(c(var_names,time)%in%colnames(data))==F) {stop("There exist variable in formula but not in data")}
+  x_names=all.vars(formula)[-1]
+  vary=match(vary.effects,x_names)
+  time=data.batched$time
   x.b=data.batched$x.batch
   y.b=data.batched$y.batch
   t.b=data.batched$t.batch
   q=dim(x.b[[1]])[2]      #dimension of covariates filter
-  q1=num.vary=length(vary)    #number of covariates with varying coefficient
+  q1=num.vary=length(vary.effects)    #number of covariates with varying coefficient
   q2=q-q1                  #number of covariates with time-invariant coefficient
-  S0=S.initial
+  #S0=S
 
   if(num.vary>0){
     t=list()         # observational time-points
@@ -672,8 +170,7 @@ DLSSM.init<-function(data.batched,S.initial,vary,autotune=TRUE,Lambda=NULL){
       for(ss in 1:dim){
         Q1[(2*ss-1):(2*ss),(2*ss-1):(2*ss)]=exp(Lambda[ss])*QQ
       }
-      Q2=TTq2=diag(rep(0,dim.con))
-      Q=as.matrix(bdiag(Q1,Q2))
+      Q[1:(2*dim),1:(2*dim)]=Q1
 
       P1 <- exp(diff)*diag(2*dim+dim.con)
 
@@ -807,8 +304,7 @@ DLSSM.init<-function(data.batched,S.initial,vary,autotune=TRUE,Lambda=NULL){
   for(ss in 1:dim){
     Q1[(2*ss-1):(2*ss),(2*ss-1):(2*ss)]=Lambda[ss]*QQ
   }
-  Q2=TTq2=diag(rep(0,dim.con))
-  Q=as.matrix(bdiag(Q1,Q2))
+  Q[1:(2*dim),1:(2*dim)]=Q1
 
   #########################################
   #Model estimation using all data with Kalman filter
@@ -912,20 +408,21 @@ DLSSM.init<-function(data.batched,S.initial,vary,autotune=TRUE,Lambda=NULL){
   }
   Est=list(Pred=prediction,Pred.var=prediction.var,Filter=filter
            ,Filter.var=filter.var,Smooth=state.smooth,Smooth.var=F.t.smooth
-           ,Lambda=Lambda,vary=vary,q=q,q1=q1,q2=q2
-           ,dim=dim,dim.con=dim.con,TT=TT,Q=Q
-           ,Prob.est=as.vector(Prob.est),S=S0,gap.len=delta.t)
+           ,Lambda=Lambda,vary.effects=vary.effects,q=q,q1=q1,q2=q2
+           ,dim=dim,dim.con=dim.con,num.vary=num.vary,TT=TT,Q=Q,time=time
+           ,Prob.est=as.vector(Prob.est),S=S,S0=S0,gap.len=delta.t,formula=formula,initial.fit=TRUE)
   return(Est)
 }
 
+
 #' Prediction step of Kalman Filter
 #' @author Jiakun Jiang, Wei Yang, Stephen E. Kimmel and Wensheng Guo
-#' @description Given the estimates of the smoothing parameters, the K-step-ahead prediction can be done by running the Kalman filtering prediction steps without the filtering steps.
-#' @param fit A object generated by function DLSSM() or DLSSM.init() or DLSSM.filter()
-#' @param newx Covariates matrix of subjects if you are interested in predicting their event probabilities in the future.
+#' @description do K-steps ahead prediction of state vector and probabilities based on current fitted model
+#' @param fit A object generated by function DLSSM.init() or DLSSM.filter()
 #' @param K K-steps ahead of prediction
+#' @param newx optionally, a covariate matrix of subjects if it is needed to predict their probabilities.
 #' @export
-#' @return List of predicted coefficients and probabilities if covariates are provided.
+#' @return
 #'  \tabular{ll}{
 #'    \code{coef.pred} \tab Matrix with row dimension K, including one-step ahead to K-steps ahead coefficients prediction. The k-th row correspond to k-step ahead prediction. \cr
 #'    \tab \cr
@@ -933,7 +430,7 @@ DLSSM.init<-function(data.batched,S.initial,vary,autotune=TRUE,Lambda=NULL){
 #'    \tab \cr
 #'    \code{prob.pred} \tab Matrix with column dimension K, including predicted probabilities of subjects if covariates are provided. The k-th column correspond to k-step ahead prediction.  \cr
 #'  }
-DLSSM.predict<-function(fit,newx,K){
+DLSSM.predict<-function(fit,K,newx){
   vary=fit$vary
   num.vary=length(vary)
   dim=fit$dim
@@ -954,47 +451,67 @@ DLSSM.predict<-function(fit,newx,K){
     coef.prediction[pred,]=TT%*%fil.last
     coef.prediction.var[pred,,]=TT%*%filt.var.last%*%t(TT)+Q
   }
+  coef.pred.onlyK=coef.prediction[K,]                  # only k-step
+  coef.pred.onlyK.var=coef.prediction.var[K,,]
   if(is.null(newx)==TRUE){prob.pred=NULL}
   if(is.null(newx)==FALSE){
     if(is.vector(newx)==T) {newx=matrix(newx,nrow=1)}
-    if(dim(newx)[2]!=fit$q) stop("The dimension of covariates does not match that dimension in the fitted model")
-    prob.pred=matrix(NA,dim(newx)[1],K)
-    for(kkk in 1:K){
-      prediction=coef.prediction[kkk,]
-      ZZ=matrix(0,dim(newx)[1],dim*2+dim.con)
-      ZZ[,1]=1
-      for(sss in 1:(dim-1)){
-        ZZ[,2*sss+1]=newx[,sss]
-      }
-      ZZ[,(2*dim+1):(2*dim+dim.con)]=newx[,dim:fit$q]
-      prob.pred[,kkk]=exp(ZZ%*%prediction)/(1+exp(ZZ%*%(prediction)))
+    prediction=coef.pred.onlyK
+
+    x.names=all.vars(fit$formula)[-1]
+    if(all(c(x.names)%in%colnames(newx))==F) {stop("There exist variable in model but not in data")}
+    newx=newx[,x.names]
+    vary.effects=fit$vary.effects
+    vary=match(vary.effects,x.names[-1])
+    q=dim(newx)[2]
+    newx=newx[,c(vary,setdiff(1:q,vary))]
+    ZZ=matrix(0,dim(newx)[1],dim*2+dim.con)
+    ZZ[,1]=1
+    for(sss in 1:(dim-1)){
+      ZZ[,2*sss+1]=newx[,sss]
     }
+    ZZ[,(2*dim+1):(2*dim+dim.con)]=newx[,dim:fit$q]
+    prob.pred=exp(ZZ%*%prediction)/(1+exp(ZZ%*%(prediction)))
   }
-  return(list(coef.pred=coef.prediction,coef.pred.var=coef.prediction.var,prob.pred=prob.pred))
+  return(list(coef.pred=coef.pred.onlyK,coef.pred.var=coef.pred.onlyK.var,prob.pred=prob.pred))
 }
 
-#' Filtering step of Kalman Filter
+
+#' model updating (filtering) when new batch of data becomes avaliable
 #' @author Jiakun Jiang, Wei Yang, Stephen E. Kimmel and Wensheng Guo
+#' @import Matrix
 #' @description When the new data becomes available, the coefficients can be efficiently
-#'  updated by running filtering step from the original estimates over the new observations.
-#' @param fit A object generated by last step operation, could be DLSSM(), DLSSM.init() or DLSSM.filter().
-#' @param newx Covariates matrix of new batch data
-#' @param newy Binary outcome of new batch data
+#'  updated by running filtering step based on current estimates.
+#' @param fit last fitted model
+#' @param newdata matrix of new batch data, each row per sample
 #' @export
-#' @return See the returned value of DLSSM().
-DLSSM.filter<-function(fit,newx,newy){
-  vary=fit$vary
-  num.vary=length(vary)
+#' @return
+#'  \tabular{ll}{
+#'    \code{Filter} \tab Filtering of state \cr
+#'    \tab \cr
+#'    \code{Filter.var} \tab  covariance of Filter\cr
+#'  }
+DLSSM.filter<-function(fit,newdata){
+  formula=fit$formula
+  x.names=all.vars(fit$formula)
+  time=fit$time
+  if(all(c(x.names,time)%in%colnames(newdata))==F) {stop("There exist variable in model but not in data")}
+  newx=newdata[,x.names[-1]]
+  newy=newdata[,x.names[1]]
+  vary.effects=fit$vary.effects
+  vary=match(vary.effects,x.names[-1])
+  q=dim(newx)[2]
+  newx=newx[,c(vary,setdiff(1:q,vary))]
+  num.vary=length(vary.effects)
   dim=fit$dim
   dim.con=fit$dim.con
   TT=fit$TT
   Q=fit$Q
-  q=fit$q
   if(is.vector(fit$Filter)==T){
     fil.last=fit$Filter
     filt.var.last=fit$Filter.var
   }
-  else{
+  if(is.vector(fit$Filter)==F){
     fil.last=fit$Filter[dim(fit$Filter)[1],]
     filt.var.last=fit$Filter.var[dim(fit$Filter)[1],,]
   }
@@ -1037,14 +554,351 @@ DLSSM.filter<-function(fit,newx,newy){
   Lambda=fit$Lambda
   q=fit$q
   q1=fit$q1
-  Est=list(Filter=filter,Filter.var=filter.var,Lambda=Lambda,vary=vary,q=q,q1=q1,dim=dim,dim.con=dim.con,TT=TT,Q=Q)
+  Est=list(Filter=filter,Filter.var=filter.var,Lambda=Lambda,vary=vary,q=q,q1=q1,dim=dim,dim.con=dim.con,TT=TT,Q=Q,time=time,formula=formula,vary.effects=vary.effects)
   return(Est)
 }
 
-#' Smoothing step in state-space model
+
+
+
+#' Dynamic logistic state-space prediction model for binary outcomes
+#' @author Jiakun Jiang, Wei Yang, Stephen E. Kimmel and Wensheng Guo
+#' @description Plot smoothed coefficients in the trainning part and predicted coefficients in validation part
+#' @param fit object generated from DLSSM() or DLSSM.init()
+#' @export
+#' @details If argument fit is initial fitted model then only smoothed coefficients part are plotted.
+DLSSM.plot<-function(fit){
+  x.names=all.vars(fit$formula)[-1]
+  vary.names=c(0,fit$vary.effects)
+  con.names=setdiff(x.names,vary.names)
+  S=fit$S
+  S0=fit$S0
+  q2=fit$q2
+  K=fit$K
+  initial.fit=fit$initial.fit
+  rows=length(fit$vary)+1
+  training_samp=fit$S0
+  cc=rows+q2
+  c1=ceiling(sqrt(cc))
+  f1=floor(sqrt(cc))
+  if(cc==c1*f1){numb.plot=c(f1,c1)}
+  if(c1*f1>cc){numb.plot=c(f1,c1)}
+  if(c1*f1<cc){numb.plot=c(c1,c1)}
+  plot.index=c(2*(1:rows)-1,(2*rows+1):(2*rows+q2))
+  par(mfrow=numb.plot,mar=c(4, 4, 1, 1),oma=c(1,1,1,1))
+
+  if(S0<S){
+
+    if(initial.fit==F){
+    est.p=fit$pred.K
+    est.var.p=fit$pred.var.K
+    est.s=fit$Smooth
+    est.var.s=fit$Smooth.var
+    for(ss in plot.index){
+      p.up1=est.p[1:(S-S0-K+1),ss]+2*sqrt(est.var.p[1:(S-S0-K+1),ss,ss])
+      p.low1=est.p[1:(S-S0-K+1),ss]-2*sqrt(est.var.p[1:(S-S0-K+1),ss,ss])
+      s.up1=est.s[(1:S0),ss]+2*sqrt(est.var.s[(1:S0),ss,ss])
+      s.low1=est.s[(1:S0),ss]-2*sqrt(est.var.s[(1:S0),ss,ss])
+      p_v_up1=p.up1
+      p_v_low1=p.low1
+      smoo_v_up1=s.up1
+      smoo_v_low1=s.low1
+
+      pre=est.p[1:(S-S0-K+1),ss]
+      smoo=est.s[(1:S0),ss]
+      loc1=c(1:S)*fit$gap.len
+
+      if(K==1){
+        smooth_pred=c(smoo,pre)
+        smooth_pred_up=c(smoo_v_up1,p_v_up1)
+        smooth_pred_low=c(smoo_v_low1,p_v_low1)
+      }
+      if(K>1){
+        betw=rep(NA,K-1)
+        smooth_pred=c(smoo,betw,pre)
+        smooth_pred_up=c(smoo_v_up1,betw,p_v_up1)
+        smooth_pred_low=c(smoo_v_low1,betw,p_v_low1)
+      }
+
+      if(ss %in% (2*(1:rows)-1)){
+        lowbound=min(c(smoo_v_low1,p_v_low1))-0.75*diff(range(c(smoo_v_low1,p_v_low1)))
+        maxbound=max(c(smoo_v_up1,p_v_up1))+0.75*diff(range(c(smoo_v_up1,p_v_up1)))
+        plot(NULL,xlim=c(0,1),ylim=c(lowbound,maxbound),xlab="t",ylab=bquote(beta[.(vary.names[((ss+1)/2)])]~(t)))
+      }
+      if(ss %in% (2*rows+1):(2*rows+q2)){
+        lowbound=min(c(smoo_v_low1,p_v_low1))-0.75*max(diff(range(c(smoo_v_low1,p_v_low1))),0.2)
+        maxbound=max(c(smoo_v_up1,p_v_up1))+0.75*max(diff(range(c(smoo_v_up1,p_v_up1))),0.2)
+        plot(NULL,xlim=c(0,1),ylim=c(lowbound,maxbound),xlab="t",ylab=bquote(alpha[.(con.names[ss-2*rows])]))
+      }
+
+      lines(loc1,smooth_pred,lty=1)
+      lines(loc1,smooth_pred_up,lty=3)
+      lines(loc1,smooth_pred_low,lty=3)
+      vv=fit$gap.len*training_samp
+      abline(v=vv,col="grey",lty=2)
+      #legend('bottomright',c("predict","filter","smooth"),lty=c(1,1,1),col=c("blue","black","red"),text.width=0.15,seg.len=0.5)
+    }
+    }
+    if(initial.fit==T){
+      est.s=fit$Smooth
+      est.var.s=fit$Smooth.var
+      for(ss in plot.index){
+        s.up1=est.s[,ss]+2*sqrt(est.var.s[,ss,ss])
+        s.low1=est.s[,ss]-2*sqrt(est.var.s[,ss,ss])
+        smoo_v_up1=s.up1
+        smoo_v_low1=s.low1
+        smoo=est.s[,ss]
+        loc1=c(1:S0)*fit$gap.len
+        smooth_pred=c(smoo)
+        smooth_pred_up=c(smoo_v_up1)
+        smooth_pred_low=c(smoo_v_low1)
+        if(ss %in% (2*(1:rows)-1)){
+          lowbound=min(c(smoo_v_low1))-0.75*diff(range(c(smoo_v_low1)))
+          maxbound=max(c(smoo_v_up1))+0.75*diff(range(c(smoo_v_up1)))
+          plot(NULL,xlim=c(0,1),ylim=c(lowbound,maxbound),xlab="t",ylab=bquote(beta[.(vary.names[((ss+1)/2)])]~(t)))
+        }
+        if(ss %in% (2*rows+1):(2*rows+q2)){
+          lowbound=min(c(smoo_v_low1))-0.75*max(diff(range(c(smoo_v_low1))),0.2)
+          maxbound=max(c(smoo_v_up1))+0.75*max(diff(range(c(smoo_v_up1))),0.2)
+          plot(NULL,xlim=c(0,1),ylim=c(lowbound,maxbound),xlab="t",ylab=bquote(alpha[.(con.names[ss-2*rows])]))
+        }
+
+        lines(loc1,smooth_pred,lty=1)
+        lines(loc1,smooth_pred_up,lty=3)
+        lines(loc1,smooth_pred_low,lty=3)
+        vv=fit$gap.len*training_samp
+        abline(v=vv,col="grey",lty=2)
+        #legend('bottomright',c("predict","filter","smooth"),lty=c(1,1,1),col=c("blue","black","red"),text.width=0.15,seg.len=0.5)
+      }
+    }
+
+  }
+  if(S0==S){
+    est.s=fit$Smooth
+    est.var.s=fit$Smooth.var
+    for(ss in plot.index){
+      s.up1=est.s[,ss]+2*sqrt(est.var.s[,ss,ss])
+      s.low1=est.s[,ss]-2*sqrt(est.var.s[,ss,ss])
+      smoo_v_up1=s.up1
+      smoo_v_low1=s.low1
+      smoo=est.s[,ss]
+      loc1=c(1:S)*fit$gap.len
+      smooth_pred=c(smoo)
+      smooth_pred_up=c(smoo_v_up1)
+      smooth_pred_low=c(smoo_v_low1)
+      if(ss %in% (2*(1:rows)-1)){
+        lowbound=min(c(smoo_v_low1))-0.75*diff(range(c(smoo_v_low1)))
+        maxbound=max(c(smoo_v_up1))+0.75*diff(range(c(smoo_v_up1)))
+        plot(NULL,xlim=c(0,1),ylim=c(lowbound,maxbound),xlab="t",ylab=bquote(beta[.(vary.names[((ss+1)/2)])]~(t)))
+      }
+      if(ss %in% (2*rows+1):(2*rows+q2)){
+        lowbound=min(c(smoo_v_low1))-0.75*max(diff(range(c(smoo_v_low1))),0.2)
+        maxbound=max(c(smoo_v_up1))+0.75*max(diff(range(c(smoo_v_up1))),0.2)
+        plot(NULL,xlim=c(0,1),ylim=c(lowbound,maxbound),xlab="t",ylab=bquote(alpha[.(con.names[ss-2*rows])]))
+      }
+
+      lines(loc1,smooth_pred,lty=1)
+      lines(loc1,smooth_pred_up,lty=3)
+      lines(loc1,smooth_pred_low,lty=3)
+      #vv=fit$gap.len*training_samp
+      #abline(v=vv,col="grey",lty=2)
+      #legend('bottomright',c("predict","filter","smooth"),lty=c(1,1,1),col=c("blue","black","red"),text.width=0.15,seg.len=0.5)
+    }
+  }
+}
+
+
+
+#' Dynamic logistic state-space prediction model for binary outcomes
+#' @author Jiakun Jiang, Wei Yang, Stephen E. Kimmel and Wensheng Guo
+#' @description Implements dynamic logistic state-space prediction model for binary outcomes as described in Jiakun et al.(2021, Biometrics). In retrospective study,
+#' it is suitable to use the main function DLSSM with specify trainning sample size. The results can also be repeated using subfunctions which is more suitable for online implementation. The algorithm was composed by training part and validation part.
+#' On the stage of training, the smoothing parameters were selected by maximizing likelihood function. Then, based on the estimated smoothing parameters, run the Kalman filtering and
+#' smoothing algorithm to estimate both the time-varying and time-invariant coefficients in the model. Based on the estimated coefficients and state-sapce model, it was straightforward to do prediction.
+#' @import Matrix
+#' @param fit0 initial fitted model with training data
+#' @param data.batched batched dataset generated by function Batched()
+#' @param K Number of steps for ahead prediction
+#' @export
+#' @details The argument fit could be object of DLSSM or DLSSM.init.
+#' @return
+#'  \tabular{ll}{
+#'    \code{pred.K:} \tab K-steps ahead predicted coefficients \cr
+#'    \tab \cr
+#'    \code{pred.var.K:} \tab  covariance of K-steps ahead predicted coefficients \cr
+#'    \tab \cr
+#'    \code{pred.prob.K:} \tab  K-steps ahead predicted probabilities \cr
+#'  }
+#' @examples
+#' rm(list=ls())
+#' set.seed(12)
+#' n=8000
+#' beta0=function(t)   0.1*t-1
+#' beta1=function(t)  cos(2*pi*t)
+#' beta2=function(t)  sin(2*pi*t)
+#' alph1=alph2=1
+#' x=matrix(runif(n*4,min=-4,max=4),nrow=n,ncol=4)
+#' t=sort(runif(n))
+#' coef=cbind(beta0(t),beta1(t),beta2(t),rep(alph1,n),rep(alph2,n))
+#' covar=cbind(rep(1,n),x)
+#' linear=apply(coef*covar,1,sum)
+#' prob=exp(linear)/(1+exp(linear))
+#' y=as.numeric(runif(n)<prob)
+#' sim.data=cbind(y,x,t)
+#' colnames(sim.data)=c("y","x1","x2","x3","x4","t")
+#' formula = y~x1+x2+x3+x4
+#' # Divide the time domain [0,1] into S=100 equally spaced intervals and then generated S=100 batches of data
+#' S=100
+#' S0=75
+#' data.batched=Batched(formula, data=sim.data, time="t", S)
+#'
+#' # using first 75 batches as training dataset to tune smoothing parameters
+#' fit0=DLSSM.init(data.batched, S0, vary.effects=c("x1","x2"))
+#' fit0$Lambda
+#'
+#'
+#' # After initial model fitting on training dataset, we move to dynamic prediction
+#' # Following is  using DLSSM in a "streaming" mode which recursively apply prediction and filtering.
+#'  K=1
+#'  dimens=2*3+2   # length of state vector
+#'  num.valid=S-S0+(K-1)  # number of predicted batches
+#'  Prediction=matrix(NA,num.valid,dimens)  # predicted state vector
+#'  Prediction.var=array(NA,dim=c(num.valid,dimens,dimens)) # covariance
+#'  Filtering=matrix(NA,num.valid,dimens)  # filtering of state vector
+#'  Filtering.var=array(NA,dim=c(num.valid,dimens,dimens))  # covariance
+#'  Pred.prob=list()   # predicted probabilities
+#'  fit.last=fit0
+#'  for(i in 1:25){
+#'    new.batch=data.batched$batched[[i+75]]
+#'    newx=new.batch[,c("x1","x2","x3","x4")]
+#'    pred=DLSSM.predict(fit.last,K=1,newx=newx)
+#'    Prediction[i,]=pred$coef.pred
+#'    Prediction.var[i,,]=pred$coef.pred.var
+#'    Pred.prob[[i]]=pred$prob.pred
+#'    fit.last=DLSSM.filter(fit.last,data.batched$batched[[i+75]])
+#'    Filtering[i,]=fit.last$Filter
+#'    Filtering.var[i,,]=fit.last$Filter.var
+#'  }
+#'
+#'  # The above iterative procedure can be easily replaced by  function DLSSM
+#'  fit=DLSSM(fit0, data.batched, K=1)
+#'  DLSSM.plot(fit)
+DLSSM<-function(fit0,data.batched,K){
+  S=fit0$S
+  S0=fit0$S0
+  if(S0+K>S){stop("S0+K>S happened, the predicted horizon exceed the Whole dataset")}
+  formula=fit0$formula
+  vary.effects=fit0$vary.effects
+  TT=fit0$TT
+  Q=fit0$Q
+  x_names=all.vars(formula)[-1]
+  vary=match(vary.effects,x_names)
+  x.b=data.batched$x.batch
+  y.b=data.batched$y.batch
+  t.b=data.batched$t.batch
+  q=dim(x.b[[1]])[2]      #dimension of covariates filter
+  q1=num.vary=length(vary.effects)    #number of covariates with varying coefficient
+  q2=q-q1                  #number of covariates with time-invariant coefficient
+
+  if(num.vary>0){
+    t=list()         # observational time-points
+    X=list()         # Covariates corresponding to varying coefficients
+    XX=list()        # Covariates corresponding to constant coefficients
+    y=list()         # binary outcome
+    for(i in 1:S){
+      t[[i]]=t.b[[i]]
+      X[[i]]=x.b[[i]][,vary]
+      XX[[i]]=x.b[[i]][,setdiff(1:q,vary)]
+      y[[i]]=as.numeric(y.b[[i]])
+    }
+  }
+  if(num.vary==0){   # no varying-coefficient
+    t=list()
+    XX=list()
+    y=list()
+    for(i in 1:S){
+      t[[i]]=t.b[[i]]
+      XX[[i]]=x.b[[i]]
+      y[[i]]=as.numeric(y.b[[i]])
+    }
+  }
+
+  dim=fit0$dim
+  dim.con=fit0$dim.con
+  dimen=2*dim+dim.con
+  Prediction=matrix(NA,S,dimen)  # 3 varying-coefficients and 2 constants coefficients
+  Prediction.var=array(NA,dim=c(S,dimen,dimen))
+  Filtering=matrix(NA,S,dimen)
+  Filtering.var=array(NA,dim=c(S,dimen,dimen))
+  Prediction[1:S0,]=fit0$Pred
+  Prediction.var[1:S0,,]=fit0$Pred.var
+  Filtering[1:S0,]=fit0$Filter
+  Filtering.var[1:S0,,]=fit0$Filter.var
+  fit.last=fit0
+  for(i in (S0+1):S){
+    pred=DLSSM.predict(fit.last,newx=NULL,K=1)
+    Prediction[i,]=pred$coef.pred
+    Prediction.var[i,,]=pred$coef.pred.var
+    fit.last=DLSSM.filter(fit.last,data.batched$batched[[i]])
+    Filtering[i,]=fit.last$Filter
+    Filtering.var[i,,]=fit.last$Filter.var
+  }
+
+  prediction.K=matrix(NA,S,2*dim+dim.con)      #for K steps ahead coef prediction
+  prediction.var.K=array(NA,dim=c(S,2*dim+dim.con,2*dim+dim.con))
+  Prob.est.K=list() # K steps ahead prediction
+  for(i in (S0+K):S){
+    K.S.P=matrix(NA,K,2*dim+dim.con)
+    K.S.P.var=array(NA,dim=c(K,2*dim+dim.con,2*dim+dim.con))
+    K.S.P[1,]=TT%*%Filtering[i-K,]
+    K.S.P.var[1,,]=TT%*%Filtering.var[i-K,,]%*%t(TT)+Q
+    if(K>1){
+      for(kp in 2:K){
+        K.S.P[kp,]=TT%*%K.S.P[kp-1,]
+        K.S.P.var[kp,,]=TT%*%K.S.P.var[kp-1,,]%*%t(TT)+Q
+      }
+    }
+    prediction.K[i,]=K.S.P[K,]
+    prediction.var.K[i,,]=K.S.P.var[K,,]
+
+    #K-steps ahead prediction of probability.
+    y.hat.k=list()
+    intial=prediction.K[i,]
+    ZZ=matrix(0,dim*2+dim.con,length(t[[i]]))
+    if(num.vary==q){
+      ZZ[1,]=1
+      for(sss in 1:(dim-1)) {
+        ZZ[2*sss+1,]=t(X[[i]])[sss,]
+      }
+    }
+    if(num.vary>0&num.vary<q){
+      ZZ[1,]=1
+      for(sss in 1:(dim-1)) {
+        ZZ[2*sss+1,]=t(X[[i]])[sss,]
+      }
+      ZZ[(2*dim+1):(2*dim+dim.con),]=t(XX[[i]])
+    }
+    if(num.vary==0){
+      ZZ[1,]=1
+      ZZ[(2*dim+1):(2*dim+dim.con),]=t(XX[[i]])
+    }
+    y.hat.k=exp(t(ZZ)%*%intial)/(1+exp(t(ZZ)%*%intial))
+    Prob.est.K[[i]]=y.hat.k
+  }
+  Smoothed=DLSSM.smooth(fit.last,Prediction,Prediction.var,Filtering,Filtering.var)
+  Est=list(Pred=Prediction,Pred.var=Prediction.var,Filter=Filtering
+           ,Filter.var=Filtering.var,Smooth=Smoothed$smooth,Smooth.var=Smoothed$smooth.var
+           ,pred.K=prediction.K[(S0+1):S,],pred.var.K=prediction.var.K[(S0+1):S,,],pred.prob.K=as.vector(Prob.est.K),Lambda=fit0$Lambda,vary.effects=vary.effects,q=q,q1=q1,q2=q2
+           ,dim=dim,dim.con=dim.con,TT=TT,Q=Q
+           ,S=S,S0=S0,gap.len=fit0$gap.len,K=K,formula=formula,initial.fit=FALSE)
+  return(Est)
+}
+
+
+#' Smoothing state vector
 #' @author Jiakun Jiang, Wei Yang, Stephen E. Kimmel and Wensheng Guo
 #' @description Smoothing past estimated coefficients.
-#' @param fit A object generated by function DLSSM() or DLSSM.init() or DLSSM.filter()
+#' @param fit A object generated by function DLSSM() or DLSSM.init()
 #' @param prediction Matrix of all prediction coefficients
 #' @param prediction.var Array of all prediction covariance matrix
 #' @param filter Matrix of all filtering coefficients
@@ -1073,73 +927,5 @@ DLSSM.smooth<-function(fit,prediction,prediction.var,filter,filter.var){
   return(list(smooth=state.smooth,smooth.var=F.t.smooth))
 }
 
-#' Dynamic logistic state-space prediction model for binary outcomes
-#' @author Jiakun Jiang, Wei Yang, Stephen E. Kimmel and Wensheng Guo
-#' @description Plot predicted, filtered and smoothed coefficients
-#' @param fit fitted state-space model
-#' @export
-#' @details The argument fit could be object of DLSSM or DLSSM.init
-DLSSM.plot<-function(fit){
-  S=fit$S
-  q2=fit$q2
-  rows=length(fit$vary)+1
-  training_samp=fit$training_samp
-  cc=rows+q2
-  c1=ceiling(sqrt(cc))
-  f1=floor(sqrt(cc))
-  if(cc==c1*f1){numb.plot=c(f1,c1)}
-  if(c1*f1>cc){numb.plot=c(f1,c1)}
-  if(c1*f1<cc){numb.plot=c(c1,c1)}
-  plot.index=c(2*(1:rows)-1,(2*rows+1):(2*rows+q2))
-  par(mfrow=numb.plot,mar=c(4, 4, 1, 1),oma=c(1,1,1,1))
 
-  est.p=fit$Pred
-  est.var.p=fit$Pred.var
-  est.f=fit$Filter
-  est.var.f=fit$Filter.var
-  est.s=fit$Smooth
-  est.var.s=fit$Smooth.var
-
-  for(ss in plot.index){
-    f.up1=est.f[,ss]+2*sqrt(est.var.f[,ss,ss])
-    f.low1=est.f[,ss]-2*sqrt(est.var.f[,ss,ss])
-    p.up1=est.p[,ss]+2*sqrt(est.var.p[,ss,ss])
-    p.low1=est.p[,ss]-2*sqrt(est.var.p[,ss,ss])
-    s.up1=est.s[,ss]+2*sqrt(est.var.s[,ss,ss])
-    s.low1=est.s[,ss]-2*sqrt(est.var.s[,ss,ss])
-    p_v_up1=p.up1#[(training_samp+1):S]
-    p_v_low1=p.low1#[(training_samp+1):S]
-    f_v_up1=f.up1#[1:training_samp]
-    f_v_low1=f.low1#[1:training_samp]
-    smoo_v_up1=s.up1#[1:training_samp]
-    smoo_v_low1=s.low1#[1:training_samp]
-    if(ss %in% (2*(1:rows)-1)){
-      lowbound=min(c(p_v_low1)[-c(1,2)])-0.25*diff(range(c(p_v_low1)[-c(1,2)]))
-      maxbound=max(c(p_v_up1)[-c(1,2)])+0.25*diff(range(c(p_v_up1)[-c(1,2)]))
-      plot(NULL,xlim=c(0,1),ylim=c(lowbound,maxbound),xlab="t",ylab=bquote(beta[.((ss+1)/2-1)]~(t)))
-    }
-    if(ss %in% (2*rows+1):(2*rows+q2)){
-      lowbound=min(c(p_v_low1)[-c(1,2)])-0.25*max(diff(range(c(p_v_low1)[-c(1,2)])),0.2)
-      maxbound=max(c(p_v_up1)[-c(1,2)])+0.25*max(diff(range(c(p_v_up1)[-c(1,2)])),0.2)
-      plot(NULL,xlim=c(0,1),ylim=c(lowbound,maxbound),xlab="t",ylab=bquote(alpha[.(ss-2*rows)]))
-    }
-    pre=est.p[,ss]
-    fil=est.f[,ss]
-    smoo=est.s[,ss]
-    loc1=c(1:S)*fit$gap.len
-    loc2=c(1:S)*fit$gap.len
-    lines(loc2,pre,lty=1,col="blue")
-    lines(loc2,p_v_up1,lty=3,col="blue")
-    lines(loc2,p_v_low1,lty=3,col="blue")
-    lines(loc1,fil,lty=1)
-    lines(loc1,f_v_up1,lty=3)
-    lines(loc1,f_v_low1,lty=3)
-    lines(loc1,smoo,lty=1,col="red")
-    lines(loc1,smoo_v_up1,lty=3,col="red")
-    lines(loc1,smoo_v_low1,lty=3,col="red")
-    vv=fit$gap.len*training_samp
-    abline(v=vv,col="grey",lty=2)
-    legend('bottomright',c("predict","filter","smooth"),lty=c(1,1,1),col=c("blue","black","red"),text.width=0.15,seg.len=0.5)
-  }
-}
 
