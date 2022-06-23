@@ -53,7 +53,7 @@ Batched<-function(formula,data,time,S){
   if(any(Data.check==0)){
     stop("There exist some intervals [(i-1)/S,i/S] with no data, please adjust batches")
   }
-  invisible(list(batched=data.all,x.batch=x.batch,y.batch=y.batch,t.batch=t.batch,gap.len=1/S,S=S,time=time,formula=formula))
+  list(batched=data.all,x.batch=x.batch,y.batch=y.batch,t.batch=t.batch,gap.len=1/S,S=S,time=time,formula=formula)
   #invisible(list(x.batch=x.batch,y.batch=y.batch,t.batch=t.batch,gap.len=1/S))
 }
 
