@@ -2,7 +2,7 @@
 % Please edit documentation in R/DLSSM.R
 \name{DLSSM.plot}
 \alias{DLSSM.plot}
-\title{Dynamic logistic state-space prediction model for binary outcomes}
+\title{plot coefficients}
 \usage{
 DLSSM.plot(fit)
 }

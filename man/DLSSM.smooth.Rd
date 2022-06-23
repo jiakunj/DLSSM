@@ -2,7 +2,7 @@
 % Please edit documentation in R/DLSSM.R
 \name{DLSSM.smooth}
 \alias{DLSSM.smooth}
-\title{Smoothing state vector}
+\title{Smooth state vector}
 \usage{
 DLSSM.smooth(fit, prediction, prediction.var, filter, filter.var)
 }

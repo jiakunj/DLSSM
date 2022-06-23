@@ -53,7 +53,7 @@ Batched<-function(formula,data,time,S){
   if(any(Data.check==0)){
     stop("There exist some intervals [(i-1)/S,i/S] with no data, please adjust batches")
   }
-  list(batched=data.all,x.batch=x.batch,y.batch=y.batch,t.batch=t.batch,gap.len=1/S,S=S,time=time,formula=formula)
+  invisible(list(batched=data.all,x.batch=x.batch,y.batch=y.batch,t.batch=t.batch,gap.len=1/S,S=S,time=time,formula=formula))
   #invisible(list(x.batch=x.batch,y.batch=y.batch,t.batch=t.batch,gap.len=1/S))
 }
 
@@ -477,7 +477,7 @@ DLSSM.predict<-function(fit,K,newx){
 }
 
 
-#' model updating (filtering) when new batch of data becomes avaliable
+#' Model updating (filtering) when new batch of data becomes avaliable
 #' @author Jiakun Jiang, Wei Yang, Stephen E. Kimmel and Wensheng Guo
 #' @import Matrix
 #' @description When the new data becomes available, the coefficients can be efficiently
@@ -561,7 +561,7 @@ DLSSM.filter<-function(fit,newdata){
 
 
 
-#' plot coefficients
+#' Plot coefficients
 #' @author Jiakun Jiang, Wei Yang, Stephen E. Kimmel and Wensheng Guo
 #' @description Plot smoothed coefficients in the trainning part and predicted coefficients in validation part
 #' @param fit object generated from DLSSM() or DLSSM.init()

@@ -2,7 +2,7 @@
 % Please edit documentation in R/DLSSM.R
 \name{DLSSM.predict}
 \alias{DLSSM.predict}
-\title{Prediction step of Kalman Filter}
+\title{K-steps ahead prediction}
 \usage{
 DLSSM.predict(fit, K, newx)
 }
