@@ -2,9 +2,7 @@
 
 export(Batched)
 export(DLSSM)
-export(DLSSM.filter)
 export(DLSSM.init)
 export(DLSSM.plot)
-export(DLSSM.predict)
-export(DLSSM.smooth)
+export(DLSSM.valid)
 import(Matrix)

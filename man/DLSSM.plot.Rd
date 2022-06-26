@@ -2,18 +2,18 @@
 % Please edit documentation in R/DLSSM.R
 \name{DLSSM.plot}
 \alias{DLSSM.plot}
-\title{plot coefficients}
+\title{Plot coefficients}
 \usage{
 DLSSM.plot(fit)
 }
 \arguments{
-\item{fit}{object generated from DLSSM() or DLSSM.init()}
+\item{fit}{fitted object}
 }
 \description{
-Plot smoothed coefficients in the trainning part and predicted coefficients in validation part
+Plot smoothed coefficients in the training part and predicted coefficients in validation part, the two parts are divided by vertical dash line.
 }
 \details{
-If argument fit is initial fitted model then only smoothed coefficients part are plotted.
+If argument "fit" is an initial fitted model then only smoothed coefficients part are plotted.
 }
 \author{
 Jiakun Jiang, Wei Yang, Stephen E. Kimmel and Wensheng Guo

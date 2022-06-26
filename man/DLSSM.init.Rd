@@ -33,7 +33,7 @@ be efficiently estimated using a Kalman filtering algorithm.
 }
 \examples{
 rm(list=ls())
-set.seed(12)
+set.seed(321)
 n=8000
 beta0=function(t)   0.1*t-1
 beta1=function(t)  cos(2*pi*t)
