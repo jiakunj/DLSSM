@@ -16,6 +16,8 @@ DLSSM(data.batched, S0, vary.effects, autotune = TRUE, Lambda = NULL, K)
 \item{autotune}{T/F indicates whether or not the automatic tuning procedure desribed in Jiakun et al. (2021) should be applied.  Default is true.}
 
 \item{Lambda}{specify smoothing parameters if autotune=F}
+
+\item{K}{number of steps for ahead prediction}
 }
 \value{
 \tabular{ll}{
@@ -53,9 +55,9 @@ S0=75
 data.batched=Batched(formula, data=sim.data, time="t", S)
 
 # Take first S0=75 batches as training data, remaining S-S0=25 batches of data as validation data.
- fit1=DLSSM(data.batched, S0, vary.effects, autotune=TRUE, Lambda=NULL, K=1)
+ fit1=DLSSM(data.batched, S0, vary.effects=c("x1","x2"), autotune=TRUE, Lambda=NULL, K=1)
  DLSSM.plot(fit1)
- fit2=DLSSM(data.batched, S0, vary.effects, autotune=TRUE, Lambda=NULL, K=2)
+ fit2=DLSSM(data.batched, S0, vary.effects=c("x1","x2"), autotune=TRUE, Lambda=NULL, K=2)
  DLSSM.plot(fit2)
 }
 \author{

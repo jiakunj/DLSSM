@@ -492,7 +492,7 @@ DLSSM.filter<-function(fit,newdata){
   ZZ=matrix(0,2*dim+dim.con,length(newy))
   ZZ[1,]=1
   if(num.vary>0){
-    for (sss in 1:(dim-1)) {
+    for(sss in 1:(dim-1)) {
       ZZ[2*sss+1,]=t(newx)[sss,]
     }
     ZZ[(2*dim+1):(2*dim+dim.con),]=t(newx)[dim:q,]
@@ -714,6 +714,7 @@ DLSSM.valid<-function(fit0,data.batched,K){
 #' @param vary.effects The names of variables in the dataset assumed to have a time-varying regression effect on the outcome.
 #' @param autotune T/F indicates whether or not the automatic tuning procedure desribed in Jiakun et al. (2021) should be applied.  Default is true.
 #' @param Lambda specify smoothing parameters if autotune=F
+#' @param K number of steps for ahead prediction
 #' @export
 #' @return
 #'  \tabular{ll}{
@@ -747,9 +748,9 @@ DLSSM.valid<-function(fit0,data.batched,K){
 #' data.batched=Batched(formula, data=sim.data, time="t", S)
 #'
 #'# Take first S0=75 batches as training data, remaining S-S0=25 batches of data as validation data.
-#'  fit1=DLSSM(data.batched, S0, vary.effects, autotune=TRUE, Lambda=NULL, K=1)
+#'  fit1=DLSSM(data.batched, S0, vary.effects=c("x1","x2"), autotune=TRUE, Lambda=NULL, K=1)
 #'  DLSSM.plot(fit1)
-#'  fit2=DLSSM(data.batched, S0, vary.effects, autotune=TRUE, Lambda=NULL, K=2)
+#'  fit2=DLSSM(data.batched, S0, vary.effects=c("x1","x2"), autotune=TRUE, Lambda=NULL, K=2)
 #'  DLSSM.plot(fit2)
 DLSSM<-function(data.batched, S0, vary.effects, autotune=TRUE, Lambda=NULL, K){
   fit0=DLSSM.init(data.batched,S0,vary.effects=vary.effects,autotune,Lambda)
@@ -770,7 +771,7 @@ DLSSM<-function(data.batched, S0, vary.effects, autotune=TRUE, Lambda=NULL, K){
 #' @export
 #' @details If argument "fit" is an initial fitted model then only smoothed coefficients part are plotted.
 DLSSM.plot<-function(fit){
-  fit0=fit$fit0
+  #fit0=fit$fit0
   x.names=all.vars(fit$formula)[-1]
   vary.names=c(0,fit$vary.effects)
   con.names=setdiff(x.names,vary.names)
@@ -790,10 +791,12 @@ DLSSM.plot<-function(fit){
   plot.index=c(2*(1:rows)-1,(2*rows+1):(2*rows+q2))
   par(mfrow=numb.plot,mar=c(4, 4, 1, 1),oma=c(1,1,1,1))
 
+  scal=3
   if(S0<S){
     if(initial.fit==F){
       est.p=fit$pred.K
       est.var.p=fit$pred.var.K
+      fit0=fit$fit0
       est.s=fit0$smooth
       est.var.s=fit0$smooth.var
       for(ss in plot.index){
@@ -823,13 +826,20 @@ DLSSM.plot<-function(fit){
         }
 
         if(ss %in% (2*(1:rows)-1)){
-          lowbound=min(na.omit(c(smoo_v_low1,p_v_low1)))-0.5*diff(range(na.omit(c(smoo_v_low1,p_v_low1))))
-          maxbound=max(na.omit(c(smoo_v_up1,p_v_up1)))+0.5*diff(range(na.omit(c(smoo_v_up1,p_v_up1))))
+          #lowbound=min(na.omit(smooth_pred_low))#-0.5*diff(range(na.omit(c(smoo_v_low1,p_v_low1))))
+          #maxbound=max(na.omit(smooth_pred_up))#+0.5*diff(range(na.omit(c(smoo_v_up1,p_v_up1))))
+          rang=max(na.omit(smooth_pred_up)-na.omit(smooth_pred_low))
+          lowbound=min(na.omit(smooth_pred))-scal*rang
+          maxbound=max(na.omit(smooth_pred))+scal*rang
           plot(NULL,xlim=c(0,1),ylim=c(lowbound,maxbound),xlab="t",ylab=bquote(beta[.(vary.names[((ss+1)/2)])]~(t)))
         }
         if(ss %in% (2*rows+1):(2*rows+q2)){
-          lowbound=min(na.omit(c(smoo_v_low1,p_v_low1)))-1.5*max(diff(range(na.omit(c(smoo_v_low1,p_v_low1)))),0.2)
-          maxbound=max(na.omit(c(smoo_v_up1,p_v_up1)))+1.5*max(diff(range(na.omit(c(smoo_v_up1,p_v_up1)))),0.2)
+          #lowbound=min(na.omit(smooth_pred_low))#-1.5*max(diff(range(na.omit(c(smoo_v_low1,p_v_low1)))),0.2)
+          #maxbound=max(na.omit(smooth_pred_up))#+1.5*max(diff(range(na.omit(c(smoo_v_up1,p_v_up1)))),0.2)
+          rang=max(na.omit(smooth_pred_up)-na.omit(smooth_pred_low))
+          #rang=maxbound-lowbound
+          lowbound=min(na.omit(smooth_pred))-scal*rang
+          maxbound=max(na.omit(smooth_pred))+scal*rang
           plot(NULL,xlim=c(0,1),ylim=c(lowbound,maxbound),xlab="t",ylab=bquote(alpha[.(con.names[ss-2*rows])]))
         }
 
@@ -842,8 +852,8 @@ DLSSM.plot<-function(fit){
       }
     }
     if(initial.fit==T){
-      est.s=fit0$smooth
-      est.var.s=fit0$smooth.var
+      est.s=fit$smooth
+      est.var.s=fit$smooth.var
       for(ss in plot.index){
         s.up1=est.s[,ss]+2*sqrt(est.var.s[,ss,ss])
         s.low1=est.s[,ss]-2*sqrt(est.var.s[,ss,ss])
@@ -855,13 +865,17 @@ DLSSM.plot<-function(fit){
         smooth_pred_up=c(smoo_v_up1)
         smooth_pred_low=c(smoo_v_low1)
         if(ss %in% (2*(1:rows)-1)){
-          lowbound=min(c(smoo_v_low1))-0.75*diff(range(c(smoo_v_low1)))
-          maxbound=max(c(smoo_v_up1))+0.75*diff(range(c(smoo_v_up1)))
+          rang=max(na.omit(smooth_pred_up)-na.omit(smooth_pred_low))
+          #rang=maxbound-lowbound
+          lowbound=min(na.omit(smooth_pred))-scal*rang
+          maxbound=max(na.omit(smooth_pred))+scal*rang
           plot(NULL,xlim=c(0,1),ylim=c(lowbound,maxbound),xlab="t",ylab=bquote(beta[.(vary.names[((ss+1)/2)])]~(t)))
         }
         if(ss %in% (2*rows+1):(2*rows+q2)){
-          lowbound=min(c(smoo_v_low1))-0.75*max(diff(range(c(smoo_v_low1))),0.2)
-          maxbound=max(c(smoo_v_up1))+0.75*max(diff(range(c(smoo_v_up1))),0.2)
+          rang=max(na.omit(smooth_pred_up)-na.omit(smooth_pred_low))
+          #rang=maxbound-lowbound
+          lowbound=min(na.omit(smooth_pred))-scal*rang
+          maxbound=max(na.omit(smooth_pred))+scal*rang
           plot(NULL,xlim=c(0,1),ylim=c(lowbound,maxbound),xlab="t",ylab=bquote(alpha[.(con.names[ss-2*rows])]))
         }
 
@@ -875,8 +889,8 @@ DLSSM.plot<-function(fit){
     }
   }
   if(S0==S){
-    est.s=fit0$smooth
-    est.var.s=fit0$smooth.var
+    est.s=fit$smooth
+    est.var.s=fit$smooth.var
     for(ss in plot.index){
       s.up1=est.s[,ss]+2*sqrt(est.var.s[,ss,ss])
       s.low1=est.s[,ss]-2*sqrt(est.var.s[,ss,ss])
@@ -888,13 +902,19 @@ DLSSM.plot<-function(fit){
       smooth_pred_up=c(smoo_v_up1)
       smooth_pred_low=c(smoo_v_low1)
       if(ss %in% (2*(1:rows)-1)){
-        lowbound=min(c(smoo_v_low1))-0.75*diff(range(c(smoo_v_low1)))
-        maxbound=max(c(smoo_v_up1))+0.75*diff(range(c(smoo_v_up1)))
+        #lowbound=min(na.omit(smooth_pred_low))#-0.5*diff(range(na.omit(c(smoo_v_low1,p_v_low1))))
+        #maxbound=max()#+0.5*diff(range(na.omit(c(smoo_v_up1,p_v_up1))))
+        rang=max(na.omit(smooth_pred_up)-na.omit(smooth_pred_low))
+        lowbound=min(smooth_pred)-rang*scal
+        maxbound=max(smooth_pred)+rang*scal
         plot(NULL,xlim=c(0,1),ylim=c(lowbound,maxbound),xlab="t",ylab=bquote(beta[.(vary.names[((ss+1)/2)])]~(t)))
       }
       if(ss %in% (2*rows+1):(2*rows+q2)){
-        lowbound=min(c(smoo_v_low1))-0.75*max(diff(range(c(smoo_v_low1))),0.2)
-        maxbound=max(c(smoo_v_up1))+0.75*max(diff(range(c(smoo_v_up1))),0.2)
+        #lowbound=min(na.omit(smooth_pred_low))#-1.5*max(diff(range(na.omit(c(smoo_v_low1,p_v_low1)))),0.2)
+        #maxbound=max(na.omit(smooth_pred_up))#+1.5*max(diff(range(na.omit(c(smoo_v_up1,p_v_up1)))),0.2)
+        rang=max(na.omit(smooth_pred_up)-na.omit(smooth_pred_low))
+        lowbound=min(na.omit(smooth_pred))-rang*scal
+        maxbound=max(na.omit(smooth_pred))+rang*scal
         plot(NULL,xlim=c(0,1),ylim=c(lowbound,maxbound),xlab="t",ylab=bquote(alpha[.(con.names[ss-2*rows])]))
       }
 
