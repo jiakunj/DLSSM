@@ -595,7 +595,7 @@ DLSSM.smooth<-function(fit,prediction,prediction.var,filter,filter.var){
 DLSSM.valid<-function(fit0,data.batched,K){
   S=fit0$S
   S0=fit0$S0
-  if(S0+K>S){stop("S0+K>S happened, the predicted horizon exceed the whole dataset")}
+  if(S0+K>S){stop("S0+K>S happen, the predicted horizon exceed the whole dataset")}
   formula=fit0$formula
   vary.effects=fit0$vary.effects
   TT=fit0$TT
@@ -755,8 +755,8 @@ DLSSM.valid<-function(fit0,data.batched,K){
 DLSSM<-function(data.batched, S0, vary.effects, autotune=TRUE, Lambda=NULL, K){
   fit0=DLSSM.init(data.batched,S0,vary.effects=vary.effects,autotune,Lambda)
   fit=DLSSM.valid(fit0, data.batched, K)
-  Est=list(pred=fit$pred,pred.var=fit$pred.var,filter=fit$filter
-           ,filter.var=fit$filter.var,smooth=fit$smooth,smooth.var=fit$smooth.var
+  Est=list(pred=fit0$pred,pred.var=fit0$pred.var,filter=fit0$filter
+           ,filter.var=fit0$filter.var,smooth=fit0$smooth,smooth.var=fit0$smooth.var
            ,pred.K=fit$pred.K,pred.var.K=fit$pred.var.K,pred.prob.K=fit$pred.prob.K,Lambda=fit0$Lambda,vary.effects=vary.effects,q=fit$q,q1=fit$q1,q2=fit$q2
            ,dim=fit$dim,dim.con=fit$dim.con,TT=fit$TT,Q=fit$Q
            ,S=fit$S,S0=S0,gap.len=fit0$gap.len,K=K,formula=fit$formula,initial.fit=FALSE,fit0=fit0)
