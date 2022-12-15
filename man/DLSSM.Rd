@@ -15,9 +15,9 @@ DLSSM(data.batched, S0, vary.effects, autotune = TRUE, Lambda = NULL, K)
 
 \item{autotune}{T/F indicates whether or not the automatic tuning procedure desribed in Jiakun et al. (2021) should be applied.  Default is true.}
 
-\item{Lambda}{specify smoothing parameters if autotune=F}
+\item{Lambda}{Specify smoothing parameters if autotune=F}
 
-\item{K}{number of steps for ahead prediction}
+\item{K}{Number of steps for ahead prediction}
 }
 \value{
 \tabular{ll}{
@@ -32,7 +32,7 @@ DLSSM(data.batched, S0, vary.effects, autotune = TRUE, Lambda = NULL, K)
 This combine model training and validation in a integrated automatic function DLSSM().
 }
 \examples{
-rm(list=ls())
+ \donttest{
 set.seed(321)
 n=8000
 beta0=function(t)   0.1*t-1
@@ -49,7 +49,7 @@ y=as.numeric(runif(n)<prob)
 sim.data=cbind(y,x,t)
 colnames(sim.data)=c("y","x1","x2","x3","x4","t")
 formula = y~x1+x2+x3+x4
-# Divide the time domain [0,1] into S=100 equally spaced intervals and then generated S=100 batches of data
+# Divide the time domain [0,1] into S=100 equally spaced intervals
 S=100
 S0=75
 data.batched=Batched(formula, data=sim.data, time="t", S)
@@ -59,7 +59,8 @@ data.batched=Batched(formula, data=sim.data, time="t", S)
  DLSSM.plot(fit1)
  fit2=DLSSM(data.batched, S0, vary.effects=c("x1","x2"), autotune=TRUE, Lambda=NULL, K=2)
  DLSSM.plot(fit2)
+ }
 }
 \author{
-Jiakun Jiang, Wei Yang, Stephen E. Kimmel and Wensheng Guo
+Jiakun Jiang, Wei Yang and Wensheng Guo
 }

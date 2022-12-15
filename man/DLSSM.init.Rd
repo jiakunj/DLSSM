@@ -13,9 +13,9 @@ DLSSM.init(data.batched, S0, vary.effects, autotune = TRUE, Lambda = NULL)
 
 \item{vary.effects}{The names of variables in the dataset assumed to have a time-varying regression effect on the outcome.}
 
-\item{autotune}{T/F indicates whether or not the automatic tuning procedure desribed in Jiakun et al. (2021) should be applied.  Default is true.}
+\item{autotune}{T/F indicates whether or not the automatic tuning procedure described in Jiang et al. (2021) should be applied.  Default is true.}
 
-\item{Lambda}{specify smoothing parameters if autotune=F}
+\item{Lambda}{Specify smoothing parameters if autotune=F}
 }
 \value{
 \tabular{ll}{
@@ -32,7 +32,7 @@ For the given smoothing parameters, the model coefficients can
 be efficiently estimated using a Kalman filtering algorithm.
 }
 \examples{
-rm(list=ls())
+\donttest{
 set.seed(321)
 n=8000
 beta0=function(t)   0.1*t-1
@@ -49,7 +49,7 @@ y=as.numeric(runif(n)<prob)
 sim.data=cbind(y,x,t)
 colnames(sim.data)=c("y","x1","x2","x3","x4","t")
 formula = y~x1+x2+x3+x4
-# Divide the time domain [0,1] into S=100 equally spaced intervals and then generated S=100 batches of data
+# Divide the time domain [0,1] into S=100 equally spaced intervals
 S=100
 S0=75
 data.batched=Batched(formula, data=sim.data, time="t", S)
@@ -59,6 +59,7 @@ fit0=DLSSM.init(data.batched, S0, vary.effects=c("x1","x2"))
 fit0$Lambda
 DLSSM.plot(fit0)
 }
+}
 \author{
-Jiakun Jiang, Wei Yang, Stephen E. Kimmel and Wensheng Guo
+Jiakun Jiang, Wei Yang and Wensheng Guo
 }

@@ -9,6 +9,9 @@ DLSSM.plot(fit)
 \arguments{
 \item{fit}{fitted object}
 }
+\value{
+Figures
+}
 \description{
 Plot smoothed coefficients in the training part and predicted coefficients in validation part, the two parts are divided by vertical dash line.
 }
@@ -16,5 +19,5 @@ Plot smoothed coefficients in the training part and predicted coefficients in va
 If argument "fit" is an initial fitted model then only smoothed coefficients part are plotted.
 }
 \author{
-Jiakun Jiang, Wei Yang, Stephen E. Kimmel and Wensheng Guo
+Jiakun Jiang, Wei Yang and Wensheng Guo
 }

@@ -3,9 +3,10 @@
 \docType{data}
 \name{car.insur}
 \alias{car.insur}
-\title{Australian automobile insurance policies between years 2004 and 2005}
+\title{Dataset contains information of full comprehensive Australian automobile insurance policies between years 2004 and 2005
+A dataset containing the claim and three attributes of 67,856 policies}
 \format{
-A data frame with 67856 rows and 4 variables
+A data frame with 67856 rows and 4 columns
 \describe{
    \item{y}{Binary vaiable with 0 denote a policy with no claim, and 1 denote a claim policy.}
    \item{gender}{gender of deriver}
@@ -17,9 +18,13 @@ A data frame with 67856 rows and 4 variables
 car.insur
 }
 \description{
-Contain  four variables
+Dataset contains information of full comprehensive Australian automobile insurance policies between years 2004 and 2005
+A dataset containing the claim and three attributes of 67,856 policies
 }
 \examples{
 data(car.insur)
 }
-\keyword{datasets}
+\references{
+De Jong P et al. (2008). “Generalized linear models for insurance data.” Cambridge Books.
+}
+\keyword{dataset}
