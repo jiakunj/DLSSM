@@ -122,7 +122,7 @@ DLSSM.init<-function(data.batched,S0,vary.effects,autotune=TRUE,Lambda=NULL){
   q1=num.vary=length(vary.effects)    #number of covariates with varying coefficient
   q2=q-q1                  #number of covariates with time-invariant coefficient
 
-  if(num.vary>0){
+  if(num.vary>0&num.vary<length(x_names)){
     t=list()         # observational time-points
     X=list()         # Covariates corresponding to varying coefficients
     XX=list()        # Covariates corresponding to constant coefficients
@@ -144,6 +144,20 @@ DLSSM.init<-function(data.batched,S0,vary.effects,autotune=TRUE,Lambda=NULL){
       y[[i]]=as.numeric(y.b[[i]])
     }
   }
+  if(num.vary==length(x_names)){
+    t=list()         # observational time-points
+    X=list()         # Covariates corresponding to varying coefficients
+    y=list()         # binary outcome
+    for(i in 1:S0){
+      t[[i]]=t.b[[i]]
+      X[[i]]=x.b[[i]][,vary]
+      y[[i]]=as.numeric(y.b[[i]])
+    }
+  }
+
+
+
+
   dim=q1+1                                  # Number of varying coefficients including intercept
   dim.con=q2                                # Number of constant coefficients
   TT=matrix(0,2*dim+dim.con,2*dim+dim.con)  # Transformation matrix in state-space model
@@ -188,7 +202,7 @@ DLSSM.init<-function(data.batched,S0,vary.effects,autotune=TRUE,Lambda=NULL){
       intial=prediction[1,]
       ZZ=matrix(0,2*dim+dim.con,length(t[[1]]))
 
-      if(dim>1){
+      if(dim>1&dim<(length(x_names)+1)){
         ZZ[1,]=1
         for(sss in 1:(dim-1)) {
           ZZ[2*sss+1,]=t(X[[1]])[sss,]
@@ -198,6 +212,13 @@ DLSSM.init<-function(data.batched,S0,vary.effects,autotune=TRUE,Lambda=NULL){
       if(dim==1){
         ZZ[1,]=1
         ZZ[(2*dim+1):(2*dim+dim.con),]=t(XX[[1]])
+      }
+      if(dim==(length(x_names)+1)){
+        ZZ[1,]=1
+        for(sss in 1:(dim-1)) {
+          ZZ[2*sss+1,]=t(X[[1]])[sss,]
+        }
+        #ZZ[(2*dim+1):(2*dim+dim.con),]=t(XX[[1]])
       }
 
       for(inter in 1:1000){
@@ -239,8 +260,8 @@ DLSSM.init<-function(data.batched,S0,vary.effects,autotune=TRUE,Lambda=NULL){
 
 
         ZZ=matrix(0,dim*2+dim.con,length(t[[i]]))
-        ZZ[1,]=1
-        if(num.vary>0){
+        ZZ[1,]=1 #num.vary>0&num.vary<length(x_names)
+        if(num.vary>0&num.vary<length(x_names)){
           for (sss in 1:(dim-1)) {
             ZZ[2*sss+1,]=t(X[[i]])[sss,]
           }
@@ -248,6 +269,11 @@ DLSSM.init<-function(data.batched,S0,vary.effects,autotune=TRUE,Lambda=NULL){
         }
         if(num.vary==0){
           ZZ[(2*dim+1):(2*dim+dim.con),]=t(XX[[i]])
+        }
+        if(num.vary==length(x_names)){
+          for (sss in 1:(dim-1)) {
+            ZZ[2*sss+1,]=t(X[[i]])[sss,]
+          }
         }
 
         for(inter in 1:1000){
@@ -322,7 +348,7 @@ DLSSM.init<-function(data.batched,S0,vary.effects,autotune=TRUE,Lambda=NULL){
   intial=prediction[1,]
   ZZ=matrix(0,2*dim+dim.con,length(t[[1]]))  #define covariate z in our state space model (5)
   ZZ[1,]=1
-  if(num.vary>0){
+  if(num.vary>0&num.vary<length(x_names)){
     for (sss in 1:(dim-1)) {
       ZZ[2*sss+1,]=t(X[[1]])[sss,]
     }
@@ -330,6 +356,11 @@ DLSSM.init<-function(data.batched,S0,vary.effects,autotune=TRUE,Lambda=NULL){
   }
   if(num.vary==0){
     ZZ[(2*dim+1):(2*dim+dim.con),]=t(XX[[1]])
+  }
+  if(num.vary==length(x_names)){
+    for (sss in 1:(dim-1)) {
+      ZZ[2*sss+1,]=t(X[[1]])[sss,]
+    }
   }
   for(inter in 1:1000){       # Newton-Raphson iterative algorithm to get filtering estimator
     summa=rep(0,2*dim+dim.con)
@@ -361,7 +392,7 @@ DLSSM.init<-function(data.batched,S0,vary.effects,autotune=TRUE,Lambda=NULL){
     intial=prediction[i,]
     ZZ=matrix(0,dim*2+dim.con,length(t[[i]]))
     ZZ[1,]=1
-    if(num.vary>0){
+    if(num.vary>0&num.vary<length(x_names)){
       for (sss in 1:(dim-1)) {
         ZZ[2*sss+1,]=t(X[[i]])[sss,]
       }
@@ -369,6 +400,11 @@ DLSSM.init<-function(data.batched,S0,vary.effects,autotune=TRUE,Lambda=NULL){
     }
     if(num.vary==0){
       ZZ[(2*dim+1):(2*dim+dim.con),]=t(XX[[i]])
+    }
+    if(num.vary==length(x_names)){
+      for (sss in 1:(dim-1)) {
+        ZZ[2*sss+1,]=t(X[[i]])[sss,]
+      }
     }
     if(i>n.train){
       y.hat=exp(t(ZZ)%*%intial)/(1+exp(t(ZZ)%*%intial))
@@ -413,7 +449,6 @@ DLSSM.init<-function(data.batched,S0,vary.effects,autotune=TRUE,Lambda=NULL){
            ,Prob.est=as.vector(Prob.est),S=S,S0=S0,gap.len=delta.t,formula=formula,initial.fit=TRUE)
   return(Est)
 }
-
 DLSSM.predict<-function(fit,K,newx){
   vary=fit$vary
   num.vary=length(vary)
@@ -490,8 +525,8 @@ DLSSM.filter<-function(fit,newdata){
   # Filtering step
   intial=predict
   ZZ=matrix(0,2*dim+dim.con,length(newy))
-  ZZ[1,]=1
-  if(num.vary>0){
+  ZZ[1,]=1#num.vary>0&num.vary<length(x_names)
+  if(num.vary>0&num.vary<length(x_names)){
     for(sss in 1:(dim-1)) {
       ZZ[2*sss+1,]=t(newx)[sss,]
     }
@@ -499,6 +534,12 @@ DLSSM.filter<-function(fit,newdata){
   }
   if(num.vary==0){
     ZZ[(2*dim+1):(2*dim+dim.con),]=t(newx)
+  }
+  if(num.vary==length(x_names)){
+    for(sss in 1:(dim-1)) {
+      ZZ[2*sss+1,]=t(newx)[sss,]
+    }
+    #ZZ[(2*dim+1):(2*dim+dim.con),]=t(newx)[dim:q,]
   }
 
   for(inter in 1:1000){     # Newton-Raphson
@@ -612,7 +653,7 @@ DLSSM.valid<-function(fit0,data.batched,K){
   q1=num.vary=length(vary.effects)    #number of covariates with varying coefficient
   q2=q-q1                  #number of covariates with time-invariant coefficient
 
-  if(num.vary>0){
+  if(num.vary>0&num.vary<length(x_names)){
     t=list()         # observational time-points
     X=list()         # Covariates corresponding to varying coefficients
     XX=list()        # Covariates corresponding to constant coefficients
@@ -631,6 +672,18 @@ DLSSM.valid<-function(fit0,data.batched,K){
     for(i in 1:S){
       t[[i]]=t.b[[i]]
       XX[[i]]=x.b[[i]]
+      y[[i]]=as.numeric(y.b[[i]])
+    }
+  }
+  if(num.vary==length(x_names)){
+    t=list()         # observational time-points
+    X=list()         # Covariates corresponding to varying coefficients
+    #XX=list()        # Covariates corresponding to constant coefficients
+    y=list()         # binary outcome
+    for(i in 1:S){
+      t[[i]]=t.b[[i]]
+      X[[i]]=x.b[[i]][,vary]
+      #XX[[i]]=x.b[[i]][,setdiff(1:q,vary)]
       y[[i]]=as.numeric(y.b[[i]])
     }
   }
@@ -705,7 +758,6 @@ DLSSM.valid<-function(fit0,data.batched,K){
            ,S=S,S0=S0,gap.len=fit0$gap.len,K=K,formula=formula,initial.fit=FALSE,fit0=fit0)
   return(Est)
 }
-
 
 
 #' Combine model training and validation in a integrated function
@@ -790,13 +842,21 @@ DLSSM.plot<-function(fit){
   initial.fit=fit$initial.fit
   rows=length(fit$vary)+1
   training_samp=fit$S0
-  cc=rows+q2
+  cc=rows#+q2
   c1=ceiling(sqrt(cc))
   f1=floor(sqrt(cc))
   if(cc==c1*f1){numb.plot=c(f1,c1)}
   if(c1*f1>cc){numb.plot=c(f1,c1)}
   if(c1*f1<cc){numb.plot=c(c1,c1)}
-  plot.index=c(2*(1:rows)-1,(2*rows+1):(2*rows+q2))
+  if(rows>1&rows<length(x.names)+1){
+    plot.index=c(2*(1:rows)-1,(2*rows+1):(2*rows+q2))
+  }
+  if(rows==length(x.names)+1){
+    plot.index=2*(1:rows)-1
+  }
+  if(rows==1){
+    plot.index=2*(1:rows)-1
+  }
   oldpar <- par(no.readonly = TRUE)
   on.exit(par(oldpar))
   par(mfrow=numb.plot,mar=c(4, 4, 1, 1),oma=c(1,1,1,1))
