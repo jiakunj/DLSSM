@@ -496,13 +496,13 @@ DLSSM.predict<-function(fit,K,newx){
 }
 DLSSM.filter<-function(fit,newdata){
   formula=fit$formula
-  x.names=all.vars(fit$formula)
+  x.names=all.vars(formula)[-1]
   time=fit$time
   if(all(c(x.names,time)%in%colnames(newdata))==F) {stop("There exist variable in model but not in data")}
-  newx=newdata[,x.names[-1]]
-  newy=newdata[,x.names[1]]
+  newx=newdata[,x.names]
+  newy=newdata[,all.vars(formula)[1]]
   vary.effects=fit$vary.effects
-  vary=match(vary.effects,x.names[-1])
+  vary=match(vary.effects,x.names)
   q=dim(newx)[2]
   newx=newx[,c(vary,setdiff(1:q,vary))]
   num.vary=length(vary.effects)
@@ -759,7 +759,6 @@ DLSSM.valid<-function(fit0,data.batched,K){
   return(Est)
 }
 
-
 #' Combine model training and validation in a integrated function
 #' @author Jiakun Jiang, Wei Yang and Wensheng Guo
 #' @description This combine model training and validation in a integrated automatic function DLSSM().
@@ -848,15 +847,15 @@ DLSSM.plot<-function(fit){
   if(cc==c1*f1){numb.plot=c(f1,c1)}
   if(c1*f1>cc){numb.plot=c(f1,c1)}
   if(c1*f1<cc){numb.plot=c(c1,c1)}
-  if(rows>1&rows<length(x.names)+1){
-    plot.index=c(2*(1:rows)-1,(2*rows+1):(2*rows+q2))
-  }
-  if(rows==length(x.names)+1){
-    plot.index=2*(1:rows)-1
-  }
-  if(rows==1){
-    plot.index=2*(1:rows)-1
-  }
+  #if(rows>1&rows<length(x.names)+1){
+  plot.index=2*(1:rows)-1
+  #}
+  #if(rows==length(x.names)+1){
+  # plot.index=2*(1:rows)-1
+  #}
+  #if(rows==1){
+  # plot.index=2*(1:rows)-1
+  #}
   oldpar <- par(no.readonly = TRUE)
   on.exit(par(oldpar))
   par(mfrow=numb.plot,mar=c(4, 4, 1, 1),oma=c(1,1,1,1))
@@ -997,5 +996,6 @@ DLSSM.plot<-function(fit){
     }
   }
 }
+
 
 
