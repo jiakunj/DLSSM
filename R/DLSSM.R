@@ -112,8 +112,8 @@ DLSSM.init<-function(data.batched,S0,vary.effects,autotune=TRUE,Lambda=NULL){
   formula=data.batched$formula
   S=data.batched$S
   if(S<S0){stop("Number of batches of training dataset exceed S")}
-  x_names=all.vars(formula)[-1]
-  vary=match(vary.effects,x_names)
+  x.names=all.vars(formula)[-1]
+  vary=match(vary.effects,x.names)
   time=data.batched$time
   x.b=data.batched$x.batch
   y.b=data.batched$y.batch
@@ -122,7 +122,7 @@ DLSSM.init<-function(data.batched,S0,vary.effects,autotune=TRUE,Lambda=NULL){
   q1=num.vary=length(vary.effects)    #number of covariates with varying coefficient
   q2=q-q1                  #number of covariates with time-invariant coefficient
 
-  if(num.vary>0&num.vary<length(x_names)){
+  if(num.vary>0&num.vary<length(x.names)){
     t=list()         # observational time-points
     X=list()         # Covariates corresponding to varying coefficients
     XX=list()        # Covariates corresponding to constant coefficients
@@ -144,7 +144,7 @@ DLSSM.init<-function(data.batched,S0,vary.effects,autotune=TRUE,Lambda=NULL){
       y[[i]]=as.numeric(y.b[[i]])
     }
   }
-  if(num.vary==length(x_names)){
+  if(num.vary==length(x.names)){
     t=list()         # observational time-points
     X=list()         # Covariates corresponding to varying coefficients
     y=list()         # binary outcome
@@ -202,7 +202,7 @@ DLSSM.init<-function(data.batched,S0,vary.effects,autotune=TRUE,Lambda=NULL){
       intial=prediction[1,]
       ZZ=matrix(0,2*dim+dim.con,length(t[[1]]))
 
-      if(dim>1&dim<(length(x_names)+1)){
+      if(dim>1&dim<(length(x.names)+1)){
         ZZ[1,]=1
         for(sss in 1:(dim-1)) {
           ZZ[2*sss+1,]=t(X[[1]])[sss,]
@@ -213,7 +213,7 @@ DLSSM.init<-function(data.batched,S0,vary.effects,autotune=TRUE,Lambda=NULL){
         ZZ[1,]=1
         ZZ[(2*dim+1):(2*dim+dim.con),]=t(XX[[1]])
       }
-      if(dim==(length(x_names)+1)){
+      if(dim==(length(x.names)+1)){
         ZZ[1,]=1
         for(sss in 1:(dim-1)) {
           ZZ[2*sss+1,]=t(X[[1]])[sss,]
@@ -260,8 +260,8 @@ DLSSM.init<-function(data.batched,S0,vary.effects,autotune=TRUE,Lambda=NULL){
 
 
         ZZ=matrix(0,dim*2+dim.con,length(t[[i]]))
-        ZZ[1,]=1 #num.vary>0&num.vary<length(x_names)
-        if(num.vary>0&num.vary<length(x_names)){
+        ZZ[1,]=1 #num.vary>0&num.vary<length(x.names)
+        if(num.vary>0&num.vary<length(x.names)){
           for (sss in 1:(dim-1)) {
             ZZ[2*sss+1,]=t(X[[i]])[sss,]
           }
@@ -270,7 +270,7 @@ DLSSM.init<-function(data.batched,S0,vary.effects,autotune=TRUE,Lambda=NULL){
         if(num.vary==0){
           ZZ[(2*dim+1):(2*dim+dim.con),]=t(XX[[i]])
         }
-        if(num.vary==length(x_names)){
+        if(num.vary==length(x.names)){
           for (sss in 1:(dim-1)) {
             ZZ[2*sss+1,]=t(X[[i]])[sss,]
           }
@@ -348,7 +348,7 @@ DLSSM.init<-function(data.batched,S0,vary.effects,autotune=TRUE,Lambda=NULL){
   intial=prediction[1,]
   ZZ=matrix(0,2*dim+dim.con,length(t[[1]]))  #define covariate z in our state space model (5)
   ZZ[1,]=1
-  if(num.vary>0&num.vary<length(x_names)){
+  if(num.vary>0&num.vary<length(x.names)){
     for (sss in 1:(dim-1)) {
       ZZ[2*sss+1,]=t(X[[1]])[sss,]
     }
@@ -357,7 +357,7 @@ DLSSM.init<-function(data.batched,S0,vary.effects,autotune=TRUE,Lambda=NULL){
   if(num.vary==0){
     ZZ[(2*dim+1):(2*dim+dim.con),]=t(XX[[1]])
   }
-  if(num.vary==length(x_names)){
+  if(num.vary==length(x.names)){
     for (sss in 1:(dim-1)) {
       ZZ[2*sss+1,]=t(X[[1]])[sss,]
     }
@@ -392,7 +392,7 @@ DLSSM.init<-function(data.batched,S0,vary.effects,autotune=TRUE,Lambda=NULL){
     intial=prediction[i,]
     ZZ=matrix(0,dim*2+dim.con,length(t[[i]]))
     ZZ[1,]=1
-    if(num.vary>0&num.vary<length(x_names)){
+    if(num.vary>0&num.vary<length(x.names)){
       for (sss in 1:(dim-1)) {
         ZZ[2*sss+1,]=t(X[[i]])[sss,]
       }
@@ -401,7 +401,7 @@ DLSSM.init<-function(data.batched,S0,vary.effects,autotune=TRUE,Lambda=NULL){
     if(num.vary==0){
       ZZ[(2*dim+1):(2*dim+dim.con),]=t(XX[[i]])
     }
-    if(num.vary==length(x_names)){
+    if(num.vary==length(x.names)){
       for (sss in 1:(dim-1)) {
         ZZ[2*sss+1,]=t(X[[i]])[sss,]
       }
@@ -525,8 +525,8 @@ DLSSM.filter<-function(fit,newdata){
   # Filtering step
   intial=predict
   ZZ=matrix(0,2*dim+dim.con,length(newy))
-  ZZ[1,]=1#num.vary>0&num.vary<length(x_names)
-  if(num.vary>0&num.vary<length(x_names)){
+  ZZ[1,]=1#num.vary>0&num.vary<length(x.names)
+  if(num.vary>0&num.vary<length(x.names)){
     for(sss in 1:(dim-1)) {
       ZZ[2*sss+1,]=t(newx)[sss,]
     }
@@ -535,7 +535,7 @@ DLSSM.filter<-function(fit,newdata){
   if(num.vary==0){
     ZZ[(2*dim+1):(2*dim+dim.con),]=t(newx)
   }
-  if(num.vary==length(x_names)){
+  if(num.vary==length(x.names)){
     for(sss in 1:(dim-1)) {
       ZZ[2*sss+1,]=t(newx)[sss,]
     }
@@ -644,8 +644,8 @@ DLSSM.valid<-function(fit0,data.batched,K){
   vary.effects=fit0$vary.effects
   TT=fit0$TT
   Q=fit0$Q
-  x_names=all.vars(formula)[-1]
-  vary=match(vary.effects,x_names)
+  x.names=all.vars(formula)[-1]
+  vary=match(vary.effects,x.names)
   x.b=data.batched$x.batch
   y.b=data.batched$y.batch
   t.b=data.batched$t.batch
@@ -653,7 +653,7 @@ DLSSM.valid<-function(fit0,data.batched,K){
   q1=num.vary=length(vary.effects)    #number of covariates with varying coefficient
   q2=q-q1                  #number of covariates with time-invariant coefficient
 
-  if(num.vary>0&num.vary<length(x_names)){
+  if(num.vary>0&num.vary<length(x.names)){
     t=list()         # observational time-points
     X=list()         # Covariates corresponding to varying coefficients
     XX=list()        # Covariates corresponding to constant coefficients
@@ -675,7 +675,7 @@ DLSSM.valid<-function(fit0,data.batched,K){
       y[[i]]=as.numeric(y.b[[i]])
     }
   }
-  if(num.vary==length(x_names)){
+  if(num.vary==length(x.names)){
     t=list()         # observational time-points
     X=list()         # Covariates corresponding to varying coefficients
     #XX=list()        # Covariates corresponding to constant coefficients
